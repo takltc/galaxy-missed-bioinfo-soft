@@ -1,0 +1,185 @@
+<tool id="expansionhunter" name="ExpansionHunter" version="5.0.0+galaxy0" profile="21.05">
+    <description>Estimate sizes of short tandem repeat (STR) expansions</description>
+    <macros>
+        <token name="@TOOL_VERSION@">5.0.0</token>
+        <token name="@VERSION_SUFFIX@">+galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">expansionhunter</requirement>
+        <container type="docker">expansionhunter:5.0.0</container>
+    </requirements>
+    <version_command>ExpansionHunter --version 2>&amp;1 | head -1</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+## 设置输入文件的符号链接，确保 BAM 索引文件能被正确识别
+#if $reads.is_of_type('bam')
+    ln -s '$reads' input.bam &&
+    ln -s '$reads.metadata.bam_index' input.bam.bai &&
+    #set $input_reads = 'input.bam'
+#else
+    ln -s '$reads' input.cram &&
+    ln -s '$reads.metadata.cram_index' input.cram.crai &&
+    #set $input_reads = 'input.cram'
+#end if
+
+## 设置参考基因组符号链接
+ln -s '$reference' reference.fa &&
+
+## 运行 ExpansionHunter
+ExpansionHunter
+    --reads '$input_reads'
+    --reference reference.fa
+    --variant-catalog '$variant_catalog'
+    --output-prefix output
+    --sex '$sex'
+    --threads \${GALAXY_SLOTS:-1}
+    --analysis-mode '$analysis_mode'
+    
+    ## 可选参数：覆盖度设置
+    #if str($coverage_options.min_locus_coverage) != ''
+        --min-locus-coverage $coverage_options.min_locus_coverage
+    #end if
+    
+    ## 可选参数：区域扩展长度
+    #if str($region_extension_length) != ''
+        --region-extension-length $region_extension_length
+    #end if
+    
+    ## 日志级别
+    #if str($advanced.log_level) != ''
+        --log-level '$advanced.log_level'
+    #end if
+
+## 重命名输出文件以便 Galaxy 识别
+&& mv output.vcf '$output_vcf'
+&& mv output.json '$output_json'
+#if $output_realigned_bam
+    && mv output_realigned.bam '$output_bam'
+#end if
+    ]]></command>
+    <inputs>
+        <!-- 必需参数 -->
+        <param name="reads" type="data" format="bam,cram" label="Aligned reads (BAM/CRAM)" 
+               help="PCR-free WGS aligned reads. Must be sorted and indexed for seeking mode."/>
+        
+        <param name="reference" type="data" format="fasta,fasta.gz" label="Reference genome (FASTA)"
+               help="Reference genome assembly used for alignment. Must match the alignment reference."/>
+        
+        <param name="variant_catalog" type="data" format="json" label="Variant catalog (JSON)"
+               help="JSON file specifying the repeat variants to genotype. See ExpansionHunter documentation for format."/>
+        
+        <!-- 基本参数 -->
+        <param name="sex" type="select" label="Sample sex" 
+               help="Sex of the sample. Only affects repeats on sex chromosomes.">
+            <option value="female" selected="true">Female</option>
+            <option value="male">Male</option>
+        </param>
+        
+        <param name="analysis_mode" type="select" label="Analysis mode"
+               help="Seeking mode uses BAM index for small catalogs. Streaming mode reads file once for large catalogs.">
+            <option value="seeking" selected="true">Seeking (requires sorted/indexed BAM, best for small catalogs)</option>
+            <option value="streaming">Streaming (no index required, best for large catalogs)</option>
+        </param>
+        
+        <!-- 覆盖度选项 -->
+        <section name="coverage_options" title="Coverage Options" expanded="false">
+            <param name="min_locus_coverage" type="integer" min="1" max="100" value="10" optional="true"
+                   label="Minimum locus coverage"
+                   help="Minimum read coverage depth at loci on diploid chromosomes. Automatically halved for haploid chromosomes. Default: 10"/>
+        </section>
+        
+        <!-- 区域扩展 -->
+        <param name="region_extension_length" type="integer" min="0" max="10000" value="1000" optional="true"
+               label="Region extension length"
+               help="How far from on/off-target regions to search for informative reads. Default: 1000"/>
+        
+        <!-- 高级选项 -->
+        <section name="advanced" title="Advanced Options" expanded="false">
+            <param name="log_level" type="select" label="Log level" optional="true"
+                   help="Verbosity of logging output">
+                <option value="">Default</option>
+                <option value="trace">Trace (most verbose)</option>
+                <option value="debug">Debug</option>
+                <option value="info">Info</option>
+                <option value="warn">Warning</option>
+                <option value="error">Error (least verbose)</option>
+            </param>
+        </section>
+        
+        <!-- 输出选项 -->
+        <param name="output_realigned_bam" type="boolean" checked="false" 
+               label="Output realigned BAM"
+               help="Output a BAMlet containing alignments of reads overlapping or near each variant"/>
+    </inputs>
+    <outputs>
+        <data name="output_vcf" format="vcf" label="${tool.name} on ${on_string}: VCF"/>
+        <data name="output_json" format="json" label="${tool.name} on ${on_string}: JSON"/>
+        <data name="output_bam" format="bam" label="${tool.name} on ${on_string}: Realigned BAM">
+            <filter>output_realigned_bam</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="reads" value="test.bam"/>
+            <param name="reference" value="test_ref.fa"/>
+            <param name="variant_catalog" value="test_catalog.json"/>
+            <param name="sex" value="female"/>
+            <param name="analysis_mode" value="seeking"/>
+            <output name="output_vcf" file="expected_output.vcf" compare="sim_size" delta="100"/>
+            <output name="output_json" file="expected_output.json" compare="sim_size" delta="100"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**ExpansionHunter - STR Expansion Detection Tool**
+
+ExpansionHunter 是由 Illumina 开发的工具，用于从 PCR-free 全基因组测序数据中估计短串联重复序列（STR）的大小。
+
+**应用场景**
+
+该工具特别适用于检测与以下疾病相关的重复序列扩展：
+
+- **脆性 X 综合征** (Fragile X Syndrome) - FMR1 基因 CGG 重复
+- **亨廷顿病** (Huntington's Disease) - HTT 基因 CAG 重复  
+- **肌萎缩侧索硬化症** (ALS) - C9orf72 基因 GGGGCC 重复
+- **脊髓小脑共济失调** (Spinocerebellar Ataxias)
+- **弗里德赖希共济失调** (Friedreich's Ataxia)
+
+**输入文件**
+
+1. **Aligned reads (BAM/CRAM)**: PCR-free WGS 比对文件
+   - Seeking 模式需要排序和索引
+   - Streaming 模式不需要索引
+
+2. **Reference genome (FASTA)**: 参考基因组
+   - 必须与比对时使用的参考基因组一致
+
+3. **Variant catalog (JSON)**: 变异目录文件
+   - 定义要检测的重复位点
+   - Illumina 提供了常见病理性重复的目录文件
+   - 可从 https://github.com/Illumina/RepeatCatalogs 获取
+
+**分析模式**
+
+- **Seeking 模式**: 使用 BAM 索引定位特定读段，适合小型目录（<100 个位点）
+- **Streaming 模式**: 单次读取整个文件，适合大型目录，内存需求更高
+
+**输出文件**
+
+1. **VCF 文件**: 标准 VCF 格式的基因型结果
+2. **JSON 文件**: 详细的分析结果，包含更多信息
+3. **Realigned BAM** (可选): 包含重比对读段的 BAMlet 文件
+
+**参考文献**
+
+- Dolzhenko et al. (2017) Detection of long repeat expansions from PCR-free whole-genome sequence data. Genome Research.
+- Dolzhenko et al. (2019) ExpansionHunter: A sequence-graph based tool to analyze variation in short tandem repeat regions. Bioinformatics.
+
+**更多信息**
+
+- GitHub: https://github.com/Illumina/ExpansionHunter
+- 文档: https://github.com/Illumina/ExpansionHunter/tree/master/docs
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1101/gr.225672.117</citation>
+        <citation type="doi">10.1093/bioinformatics/btz431</citation>
+    </citations>
+</tool>

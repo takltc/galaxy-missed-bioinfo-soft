@@ -1,0 +1,402 @@
+<tool id="gangstr" name="GangSTR" version="2.5.0+galaxy0" profile="21.05">
+    <description>Genome-wide profiling of tandem repeats from short reads</description>
+    <macros>
+        <token name="@TOOL_VERSION@">2.5.0</token>
+        <token name="@VERSION_SUFFIX@">+galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">gangstr</requirement>
+        <container type="docker">gangstr:2.5.0</container>
+    </requirements>
+    <version_command>GangSTR --version 2>&amp;1 | head -1</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+## 设置输入 BAM 文件的符号链接
+#set $bam_files = []
+#set $bam_index = 0
+#for $bam in $input_bams
+    ln -s '$bam' 'input_${bam_index}.bam' &&
+    ln -s '$bam.metadata.bam_index' 'input_${bam_index}.bam.bai' &&
+    #silent $bam_files.append('input_' + str($bam_index) + '.bam')
+    #set $bam_index = $bam_index + 1
+#end for
+
+## 设置参考基因组符号链接
+ln -s '$reference' reference.fa &&
+
+## 运行 GangSTR
+GangSTR
+    --bam #echo ','.join($bam_files)#
+    --ref reference.fa
+    --regions '$regions'
+    --out output
+    
+    ## 通用选项
+    #if $general_options.targeted
+        --targeted
+    #end if
+    
+    #if str($general_options.chrom) != ''
+        --chrom '$general_options.chrom'
+    #end if
+    
+    #if str($general_options.bam_samps) != ''
+        --bam-samps '$general_options.bam_samps'
+    #end if
+    
+    #if str($general_options.samp_sex) != ''
+        --samp-sex '$general_options.samp_sex'
+    #end if
+    
+    #if $general_options.str_info
+        --str-info '$general_options.str_info'
+    #end if
+    
+    #if str($general_options.period) != ''
+        --period '$general_options.period'
+    #end if
+    
+    #if $general_options.skip_qscore
+        --skip-qscore
+    #end if
+    
+    ## 测序设置选项
+    #if str($sequencing_options.readlength) != ''
+        --readlength $sequencing_options.readlength
+    #end if
+    
+    #if str($sequencing_options.coverage) != ''
+        --coverage $sequencing_options.coverage
+    #end if
+    
+    #if $sequencing_options.model_gc_coverage
+        --model-gc-coverage
+    #end if
+    
+    #if str($sequencing_options.insertmean) != ''
+        --insertmean $sequencing_options.insertmean
+    #end if
+    
+    #if str($sequencing_options.insertsdev) != ''
+        --insertsdev $sequencing_options.insertsdev
+    #end if
+    
+    #if $sequencing_options.nonuniform
+        --nonuniform
+    #end if
+    
+    #if str($sequencing_options.min_sample_reads) != ''
+        --min-sample-reads $sequencing_options.min_sample_reads
+    #end if
+    
+    ## 似然模型高级参数
+    #if str($likelihood_options.frrweight) != ''
+        --frrweight $likelihood_options.frrweight
+    #end if
+    
+    #if str($likelihood_options.spanweight) != ''
+        --spanweight $likelihood_options.spanweight
+    #end if
+    
+    #if str($likelihood_options.enclweight) != ''
+        --enclweight $likelihood_options.enclweight
+    #end if
+    
+    #if str($likelihood_options.flankweight) != ''
+        --flankweight $likelihood_options.flankweight
+    #end if
+    
+    #if str($likelihood_options.ploidy) != ''
+        --ploidy $likelihood_options.ploidy
+    #end if
+    
+    #if $likelihood_options.skipofftarget
+        --skipofftarget
+    #end if
+    
+    #if $likelihood_options.readprobmode
+        --readprobmode
+    #end if
+    
+    #if str($likelihood_options.numbstrap) != ''
+        --numbstrap $likelihood_options.numbstrap
+    #end if
+    
+    #if str($likelihood_options.grid_threshold) != ''
+        --grid-threshold $likelihood_options.grid_threshold
+    #end if
+    
+    #if str($likelihood_options.rescue_count) != ''
+        --rescue-count $likelihood_options.rescue_count
+    #end if
+    
+    #if str($likelihood_options.max_proc_read) != ''
+        --max-proc-read $likelihood_options.max_proc_read
+    #end if
+    
+    ## 局部重比对参数
+    #if str($realignment_options.minscore) != ''
+        --minscore $realignment_options.minscore
+    #end if
+    
+    #if str($realignment_options.minmatch) != ''
+        --minmatch $realignment_options.minmatch
+    #end if
+    
+    ## Stutter 模型参数
+    #if str($stutter_options.stutterup) != ''
+        --stutterup $stutter_options.stutterup
+    #end if
+    
+    #if str($stutter_options.stutterdown) != ''
+        --stutterdown $stutter_options.stutterdown
+    #end if
+    
+    #if str($stutter_options.stutterprob) != ''
+        --stutterprob $stutter_options.stutterprob
+    #end if
+
+## 重命名输出文件
+&& mv output.vcf '$output_vcf'
+#if $output_samplestats
+    && mv output.samplestats.tab '$output_stats'
+#end if
+    ]]></command>
+    <inputs>
+        <!-- 必需参数 -->
+        <param name="input_bams" type="data" format="bam" multiple="true" label="Input BAM file(s)"
+               help="Comma separated list of input BAM files. Multiple BAM files can be processed together."/>
+        
+        <param name="reference" type="data" format="fasta" label="Reference genome (FASTA)"
+               help="Reference genome FASTA file used for alignment."/>
+        
+        <param name="regions" type="data" format="bed" label="Target TR regions (BED)"
+               help="BED file specifying target tandem repeat loci to genotype."/>
+        
+        <!-- 通用选项 -->
+        <section name="general_options" title="General Options" expanded="false">
+            <param name="targeted" type="boolean" checked="false" 
+                   label="Targeted mode"
+                   help="Run GangSTR in targeted mode. Use this when targeting disease loci (as opposed to genome-wide run)."/>
+            
+            <param name="chrom" type="text" value="" optional="true"
+                   label="Chromosome"
+                   help="Only genotype regions on this chromosome. Leave empty to process all chromosomes."/>
+            
+            <param name="bam_samps" type="text" value="" optional="true"
+                   label="Sample IDs"
+                   help="Comma separated list of sample IDs for each BAM file. Must match the number of BAM files."/>
+            
+            <param name="samp_sex" type="text" value="" optional="true"
+                   label="Sample sex"
+                   help="Comma separated list of sample sex (M/F) for each sample ID. Requires --bam-samps to be provided."/>
+            
+            <param name="str_info" type="data" format="tabular" optional="true"
+                   label="STR info file"
+                   help="Tab file with additional per-STR info (e.g., expansion cutoff)."/>
+            
+            <param name="period" type="text" value="" optional="true"
+                   label="Period filter"
+                   help="Only genotype loci with periods (motif lengths) in this comma-separated list. E.g., '3,4,5' for tri-, tetra-, and penta-nucleotide repeats."/>
+            
+            <param name="skip_qscore" type="boolean" checked="false"
+                   label="Skip Q-score calculation"
+                   help="Skip calculation of Q-score (see Q field in VCF output). Can speed up analysis."/>
+        </section>
+        
+        <!-- 测序设置选项 -->
+        <section name="sequencing_options" title="Sequencing Settings" expanded="false">
+            <param name="readlength" type="integer" min="50" max="500" value="" optional="true"
+                   label="Read length"
+                   help="Preset read length. If not provided, will be extracted from alignments."/>
+            
+            <param name="coverage" type="float" min="0.1" max="1000" value="" optional="true"
+                   label="Average coverage"
+                   help="Preset average coverage. Should be set for exome/targeted data. Comma separated list to specify for each BAM. If not provided, will be calculated."/>
+            
+            <param name="model_gc_coverage" type="boolean" checked="false"
+                   label="Model GC coverage"
+                   help="Model coverage as a function of GC content. Requires genome-wide data. Experimental feature."/>
+            
+            <param name="insertmean" type="float" min="0" max="2000" value="" optional="true"
+                   label="Fragment length mean"
+                   help="Mean fragment length (insert size). If not provided, will be calculated from alignments."/>
+            
+            <param name="insertsdev" type="float" min="0" max="500" value="" optional="true"
+                   label="Fragment length std dev"
+                   help="Fragment length standard deviation. If not provided, will be calculated from alignments."/>
+            
+            <param name="nonuniform" type="boolean" checked="false"
+                   label="Non-uniform coverage"
+                   help="Indicates non-uniform coverage in alignment file (e.g., for exome sequencing). Removes the likelihood term corresponding to FRR count."/>
+            
+            <param name="min_sample_reads" type="integer" min="1" max="1000" value="" optional="true"
+                   label="Minimum sample reads"
+                   help="Minimum number of reads per sample required to attempt genotyping."/>
+        </section>
+        
+        <!-- 似然模型高级参数 -->
+        <section name="likelihood_options" title="Likelihood Model Parameters" expanded="false">
+            <param name="frrweight" type="float" min="0" max="10" value="" optional="true"
+                   label="FRR weight"
+                   help="Weight for FRR (Fully Repetitive Reads) class in likelihood model. Default: 1.0"/>
+            
+            <param name="spanweight" type="float" min="0" max="10" value="" optional="true"
+                   label="Spanning weight"
+                   help="Weight for Spanning class in likelihood model. Default: 1.0"/>
+            
+            <param name="enclweight" type="float" min="0" max="10" value="" optional="true"
+                   label="Enclosing weight"
+                   help="Weight for Enclosing class in likelihood model. Default: 1.0"/>
+            
+            <param name="flankweight" type="float" min="0" max="10" value="" optional="true"
+                   label="Flanking weight"
+                   help="Weight for Flanking class in likelihood model. Default: 1.0"/>
+            
+            <param name="ploidy" type="select" label="Ploidy"
+                   help="Haploid (1) or diploid (2) genotyping.">
+                <option value="" selected="true">Default (diploid)</option>
+                <option value="1">Haploid (1)</option>
+                <option value="2">Diploid (2)</option>
+            </param>
+            
+            <param name="skipofftarget" type="boolean" checked="false"
+                   label="Skip off-target regions"
+                   help="Skip off-target regions included in the regions file."/>
+            
+            <param name="readprobmode" type="boolean" checked="false"
+                   label="Read probability mode"
+                   help="Only use read probabilities in likelihood model (ignore class probability)."/>
+            
+            <param name="numbstrap" type="integer" min="10" max="1000" value="" optional="true"
+                   label="Bootstrap samples"
+                   help="Number of bootstrap samples for calculating confidence intervals. Default: 100"/>
+            
+            <param name="grid_threshold" type="integer" min="100" max="100000" value="" optional="true"
+                   label="Grid threshold"
+                   help="Use optimization rather than grid search to find MLE if search space contains more alleles than this threshold. Default: 10000"/>
+            
+            <param name="rescue_count" type="integer" min="0" max="100" value="" optional="true"
+                   label="Rescue count"
+                   help="Number of regions that GangSTR attempts to rescue mates from (excluding off-target regions). Default: 0"/>
+            
+            <param name="max_proc_read" type="integer" min="100" max="100000" value="" optional="true"
+                   label="Max processed reads"
+                   help="Maximum number of processed reads per sample before a region is skipped."/>
+        </section>
+        
+        <!-- 局部重比对参数 -->
+        <section name="realignment_options" title="Local Realignment Parameters" expanded="false">
+            <param name="minscore" type="integer" min="0" max="200" value="" optional="true"
+                   label="Minimum alignment score"
+                   help="Minimum alignment score for accepting reads. Default: 75"/>
+            
+            <param name="minmatch" type="integer" min="0" max="50" value="" optional="true"
+                   label="Minimum matching bp"
+                   help="Minimum matching basepairs required at the edge of the repeat region to accept flanking and enclosing reads. Default: 5"/>
+        </section>
+        
+        <!-- Stutter 模型参数 -->
+        <section name="stutter_options" title="Stutter Model Parameters" expanded="false">
+            <param name="stutterup" type="float" min="0" max="1" value="" optional="true"
+                   label="Stutter insertion probability"
+                   help="Probability of stutter insertion (adding repeat units). Default: 0.05"/>
+            
+            <param name="stutterdown" type="float" min="0" max="1" value="" optional="true"
+                   label="Stutter deletion probability"
+                   help="Probability of stutter deletion (removing repeat units). Default: 0.05"/>
+            
+            <param name="stutterprob" type="float" min="0" max="1" value="" optional="true"
+                   label="Stutter step size parameter"
+                   help="Probability that stutter changes repeat count by exactly 1 unit. Default: 0.90"/>
+        </section>
+        
+        <!-- 输出选项 -->
+        <param name="output_samplestats" type="boolean" checked="true"
+               label="Output sample statistics"
+               help="Output sample statistics file (samplestats.tab)"/>
+    </inputs>
+    <outputs>
+        <data name="output_vcf" format="vcf" label="${tool.name} on ${on_string}: VCF"/>
+        <data name="output_stats" format="tabular" label="${tool.name} on ${on_string}: Sample Stats">
+            <filter>output_samplestats</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="input_bams" value="test.bam"/>
+            <param name="reference" value="test_ref.fa"/>
+            <param name="regions" value="test_regions.bed"/>
+            <output name="output_vcf" file="expected_output.vcf" compare="sim_size" delta="100"/>
+            <output name="output_stats" file="expected_stats.tab" compare="sim_size" delta="100"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**GangSTR - Genome-wide Tandem Repeat Profiling Tool**
+
+GangSTR 是由 Gymrek Lab 开发的工具，用于从短读长测序数据中进行全基因组串联重复序列（STR）分析。
+
+**主要优势**
+
+与其他 STR 分析工具（如 lobSTR、HipSTR）相比，GangSTR 的关键优势是能够处理**超过读长的重复序列**。
+
+**工作原理**
+
+GangSTR 接收比对后的 BAM 文件和参考基因组中的重复区域定义，输出包含每个位点基因型的 VCF 文件。该工具使用概率模型，综合考虑以下几类读段：
+
+- **Spanning reads**: 跨越整个重复区域的读段
+- **Flanking reads**: 部分覆盖重复区域的读段
+- **Enclosing reads**: 完全包含在重复区域内的读段
+- **FRR (Fully Repetitive Reads)**: 完全由重复序列组成的读段
+
+**输入文件**
+
+1. **BAM 文件**: 比对后的测序数据（支持多个样本）
+2. **参考基因组**: FASTA 格式
+3. **目标区域**: BED 格式，定义要分析的 STR 位点
+
+**参考区域文件格式**
+
+BED 文件需要包含以下列：
+- chrom: 染色体
+- start: 起始位置
+- end: 结束位置
+- period: 重复单元长度
+- ref_copy: 参考基因组中的重复次数
+
+**运行模式**
+
+- **全基因组模式**: 默认模式，适用于 WGS 数据
+- **靶向模式** (--targeted): 适用于疾病位点检测，如外显子组或靶向测序
+
+**输出文件**
+
+1. **VCF 文件**: 包含每个位点的基因型信息
+   - GT: 基因型
+   - DP: 覆盖深度
+   - Q: 质量分数
+   - REPCN: 重复次数
+   - REPCI: 置信区间
+   - RC: 各类读段计数
+
+2. **Sample Stats 文件**: 样本级别的统计信息
+
+**高级功能**
+
+- **Stutter 模型**: 校正 PCR stutter 引起的假阳性
+- **Bootstrap 置信区间**: 提供基因型的不确定性估计
+- **GC 覆盖度建模**: 校正 GC 含量对覆盖度的影响
+
+**参考文献**
+
+Mousavi N, Shleizer-Burko S, Yanicky R, Gymrek M. (2019) Profiling the genome-wide landscape of tandem repeat expansions. Nucleic Acids Research. https://doi.org/10.1093/nar/gkz501
+
+**更多信息**
+
+- GitHub: https://github.com/gymreklab/GangSTR
+- Wiki: https://github.com/gymreklab/GangSTR/wiki
+- 参考区域文件: https://github.com/gymreklab/GangSTR#references
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1093/nar/gkz501</citation>
+    </citations>
+</tool>

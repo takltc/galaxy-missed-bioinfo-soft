@@ -1,0 +1,170 @@
+<tool id="strling" name="STRling" version="0.6.0+galaxy0" profile="21.05">
+    <description>Detect short tandem repeat expansions at known and novel loci</description>
+    <macros>
+        <token name="@TOOL_VERSION@">0.6.0</token>
+        <token name="@VERSION_SUFFIX@">+galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">strling</requirement>
+        <container type="docker">strling:0.6.0</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+#if $reads.is_of_type('bam')
+    ln -s '$reads' input.bam &&
+    ln -s '$reads.metadata.bam_index' input.bam.bai &&
+    #set $input_reads = 'input.bam'
+#else
+    ln -s '$reads' input.cram &&
+    ln -s '$reads.metadata.cram_index' input.cram.crai &&
+    #set $input_reads = 'input.cram'
+#end if
+
+ln -s '$reference' reference.fa &&
+
+#if str($reference.metadata.fasta_index) != 'None'
+    ln -s '$reference.metadata.fasta_index' reference.fa.fai &&
+#end if
+
+strling index reference.fa &&
+
+strling extract 
+    -f reference.fa
+    '$input_reads'
+    sample.bin
+&&
+
+mkdir -p results &&
+
+strling call
+    --output-prefix results/sample
+    -f reference.fa
+    '$input_reads'
+    sample.bin
+    
+#if str($advanced.min_support) != ''
+    --min-support $advanced.min_support
+#end if
+
+#if str($advanced.min_cluster_reads) != ''
+    --min-cluster-reads $advanced.min_cluster_reads
+#end if
+
+&&
+
+mv results/sample-bounds.txt '$output_bounds' &&
+mv results/sample-genotype.txt '$output_genotype' &&
+mv results/sample-unplaced.txt '$output_unplaced'
+    ]]></command>
+    <inputs>
+        <param name="reads" type="data" format="bam,cram" label="Aligned reads (BAM/CRAM)" 
+               help="PCR-free WGS aligned reads. Must be sorted and indexed."/>
+        
+        <param name="reference" type="data" format="fasta,fasta.gz" label="Reference genome (FASTA)"
+               help="Reference genome assembly used for alignment. Must match the alignment reference."/>
+        
+        <section name="advanced" title="Advanced Options" expanded="false">
+            <param name="min_support" type="integer" min="1" max="50" value="" optional="true"
+                   label="Minimum support"
+                   help="Minimum number of supporting reads to call an STR expansion. Default: 5"/>
+            
+            <param name="min_cluster_reads" type="integer" min="1" max="50" value="" optional="true"
+                   label="Minimum cluster reads"
+                   help="Minimum reads in a cluster to report a locus. Default: 2"/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output_bounds" format="tabular" label="${tool.name} on ${on_string}: Bounds"/>
+        <data name="output_genotype" format="tabular" label="${tool.name} on ${on_string}: Genotype"/>
+        <data name="output_unplaced" format="tabular" label="${tool.name} on ${on_string}: Unplaced"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="3">
+            <param name="reads" value="test.bam"/>
+            <param name="reference" value="test_ref.fa"/>
+            <output name="output_genotype" file="expected_genotype.txt" compare="sim_size" delta="100"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**STRling - Short Tandem Repeat Expansion Detection**
+
+STRling (pronounced like "sterling") 是一种用于从短读测序数据中检测大型短串联重复序列 (STR) 扩展的方法。
+
+**主要特点**
+
+- 能够检测**新发 STR 扩展**，即参考基因组中该位置不存在 STR 的扩展
+- 也能检测参考基因组中已注释的 STR 扩展
+- 使用 k-mer 计数来恢复错误映射的 STR 读段
+- 使用软剪切读段精确发现 STR 扩展在参考基因组中的位置
+- **碱基对级别的位置精度**
+
+**临床应用**
+
+STRling 特别适用于检测导致以下疾病的重复序列扩展：
+
+- **CANVAS** (小脑性共济失调、神经病变和前庭反射缺失综合征) - RFC1 基因 AAGGG 重复
+- **亨廷顿病** (Huntington's Disease) - HTT 基因 CAG 重复
+- **弗里德赖希共济失调** (Friedreich's Ataxia) - FXN 基因 GAA 重复
+- **脆性 X 综合征** (Fragile X Syndrome) - FMR1 基因 CGG 重复
+- **肌强直性营养不良** (Myotonic Dystrophy) - DMPK/CNBP 基因重复
+- **脊髓小脑共济失调** (Spinocerebellar Ataxias)
+- 以及其他 40+ 种 STR 相关疾病
+
+**输入文件**
+
+1. **Aligned reads (BAM/CRAM)**: PCR-free WGS 比对文件
+   - 必须排序和索引
+   - 推荐 30X 或更高覆盖度
+
+2. **Reference genome (FASTA)**: 参考基因组
+   - 必须与比对时使用的参考基因组一致
+   - 推荐使用 GRCh38
+
+**输出文件**
+
+1. **Bounds**: STR 位点边界信息
+   - 包含检测到的 STR 扩展位置
+
+2. **Genotype**: 基因型估计
+   - 包含等位基因大小估计和每个位点的详细信息
+   - 关键列：chrom, left, right, repeatunit, allele1_est, allele2_est
+
+3. **Unplaced**: 未定位的 STR 读段
+   - 无法分配到特定位点的 STR 读段计数
+
+**工作流程**
+
+STRling 工作流程分为三个主要步骤：
+
+1. **Extract**: 从 BAM/CRAM 中提取含有 STR 信息的读段
+2. **Call**: 在每个样本中调用 STR 扩展
+3. **Outlier** (可选): 在队列中寻找离群值
+
+本工具执行前两步（Extract + Call）进行单样本分析。
+
+**方法学**
+
+STRling 使用 k-mer 计数来识别含有高 STR 内容的读段，然后：
+- 使用配对读段信息将 STR 读段重新定位到正确的基因组位置
+- 使用软剪切读段精确定义 STR 扩展的插入点
+- 结合跨越读段、锚定配对和未定位配对来估计等位基因大小
+
+**灵敏度和特异性**
+
+根据原始论文验证：
+- 在已知病理性 STR 位点的检测灵敏度：87.2%（单独调用）至 98.9%（联合调用）
+- 位置精度：平均误差 6.14 bp（联合调用）
+- 假发现率（FDR）：0.078（病理性位点）
+
+**参考文献**
+
+Dashnow, H., Pedersen, B.S., Hiatt, L. et al. STRling: a k-mer counting approach that detects short tandem repeat expansions at known and novel loci. Genome Biol 23, 257 (2022).
+
+**更多信息**
+
+- GitHub: https://github.com/quinlan-lab/STRling
+- 文档: https://strling.readthedocs.io/
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1186/s13059-022-02826-4</citation>
+    </citations>
+</tool>

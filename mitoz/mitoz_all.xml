@@ -1,0 +1,250 @@
+<tool id="mitoz_all" name="MitoZ All-in-One" version="3.6+galaxy0" profile="21.05">
+    <description>Assembly, annotation and visualization of animal mitochondrial genomes</description>
+    <macros>
+        <token name="@TOOL_VERSION@">3.6</token>
+        <token name="@GALAXY_VERSION@">galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">mitoz</requirement>
+        <container type="docker">guanliangmeng/mitoz:3.6</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        ## 创建工作目录
+        mkdir -p workdir && cd workdir &&
+
+        ## 链接输入文件
+        ln -s '$fq1' input_R1.fq.gz &&
+        #if $fq2:
+            ln -s '$fq2' input_R2.fq.gz &&
+        #end if
+
+        ## 运行 MitoZ all-in-one 流程
+        mitoz all
+            --outprefix output
+            --thread_number \${GALAXY_SLOTS:-4}
+            --clade '$clade'
+            --genetic_code $genetic_code
+            #if str($species_name).strip():
+                --species_name '$species_name'
+            #end if
+            --fq1 input_R1.fq.gz
+            #if $fq2:
+                --fq2 input_R2.fq.gz
+            #end if
+            --fastq_read_length $fastq_read_length
+            --data_size_for_mt_assembly '$data_size_for_mt_assembly'
+            --assembler $assembler
+            #if str($assembler) == 'megahit':
+                --kmers_megahit $kmers_megahit
+                --memory $memory
+            #end if
+            #if str($assembler) == 'spades':
+                --kmers_spades $kmers_spades
+            #end if
+            --requiring_taxa '$requiring_taxa'
+            #if $skip_filter:
+                --skip_filter
+            #end if
+        &&
+
+        ## 复制结果文件到输出目录
+        cp -r output.result/* . 2>/dev/null || true &&
+        
+        ## 查找并复制主要输出文件
+        find . -name "*.mitogenome.fa" -exec cp {} mitogenome.fasta \; 2>/dev/null || true &&
+        find . -name "*.gbf" -exec cp {} annotation.gbf \; 2>/dev/null || true &&
+        find . -name "*circos.svg" -exec cp {} visualization.svg \; 2>/dev/null || true &&
+        find . -name "*circos.png" -exec cp {} visualization.png \; 2>/dev/null || true &&
+        find . -name "*.cds.fasta" -exec cp {} cds.fasta \; 2>/dev/null || true &&
+        find . -name "*.trna.fasta" -exec cp {} trna.fasta \; 2>/dev/null || true &&
+        find . -name "*.rrna.fasta" -exec cp {} rrna.fasta \; 2>/dev/null || true &&
+        find . -name "summary.txt" -exec cp {} summary.txt \; 2>/dev/null || true &&
+        find . -name "*.overlap_information" -exec cp {} overlap_info.txt \; 2>/dev/null || true
+    ]]></command>
+    <inputs>
+        <!-- 输入文件 -->
+        <param name="fq1" type="data" format="fastqsanger,fastqsanger.gz,fastq,fastq.gz" label="Forward reads (R1)" 
+               help="Paired-end forward reads or single-end reads in FASTQ format (gzip compressed supported)"/>
+        <param name="fq2" type="data" format="fastqsanger,fastqsanger.gz,fastq,fastq.gz" optional="true" label="Reverse reads (R2)" 
+               help="Paired-end reverse reads in FASTQ format (optional, leave empty for single-end data)"/>
+        
+        <!-- 物种分类信息 -->
+        <param name="clade" type="select" label="Clade" help="Taxonomic clade of the sample">
+            <option value="Chordata" selected="true">Chordata (脊索动物门)</option>
+            <option value="Arthropoda">Arthropoda (节肢动物门)</option>
+        </param>
+        <param name="genetic_code" type="select" label="Genetic code" help="NCBI genetic code table number">
+            <option value="1">1 - Standard</option>
+            <option value="2" selected="true">2 - Vertebrate Mitochondrial</option>
+            <option value="3">3 - Yeast Mitochondrial</option>
+            <option value="4">4 - Mold, Protozoan, Coelenterate Mitochondrial</option>
+            <option value="5">5 - Invertebrate Mitochondrial</option>
+            <option value="9">9 - Echinoderm and Flatworm Mitochondrial</option>
+            <option value="13">13 - Ascidian Mitochondrial</option>
+            <option value="14">14 - Alternative Flatworm Mitochondrial</option>
+        </param>
+        <param name="species_name" type="text" value="" optional="true" label="Species name" 
+               help="Scientific name of the species (e.g., 'Homo sapiens'). Used in GenBank file generation."/>
+        <param name="requiring_taxa" type="text" value="Chordata" label="Requiring taxa" 
+               help="Taxonomic rank (order, family, genus, etc.) for filtering non-target sequences"/>
+        
+        <!-- 测序参数 -->
+        <param name="fastq_read_length" type="integer" value="150" min="50" max="300" label="FASTQ read length" 
+               help="Length of reads in the FASTQ files (e.g., 100, 150, 250)"/>
+        <param name="data_size_for_mt_assembly" type="text" value="3,0" label="Data size for assembly (Gbp)" 
+               help="Format: 'float1,float2'. float1=raw data size to subsample (Gbp), float2=minimum clean data size. Use '0,0' to use all data."/>
+        
+        <!-- 组装参数 -->
+        <param name="assembler" type="select" label="Assembler" help="Assembly software to use">
+            <option value="megahit" selected="true">MEGAHIT (recommended)</option>
+            <option value="spades">SPAdes</option>
+        </param>
+        <param name="kmers_megahit" type="text" value="59 79 99 119 141" label="MEGAHIT k-mers" 
+               help="K-mer sizes for MEGAHIT assembly (space-separated). Use larger k-mers first for better results. Values must be smaller than read length.">
+            <sanitizer>
+                <valid initial="string.digits">
+                    <add value=" "/>
+                </valid>
+            </sanitizer>
+        </param>
+        <param name="kmers_spades" type="text" value="21 33 55 77" label="SPAdes k-mers" 
+               help="K-mer sizes for SPAdes assembly (space-separated)">
+            <sanitizer>
+                <valid initial="string.digits">
+                    <add value=" "/>
+                </valid>
+            </sanitizer>
+        </param>
+        <param name="memory" type="integer" value="50" min="4" max="500" label="Maximum memory (GB)" 
+               help="Maximum RAM for MEGAHIT assembly in gigabytes"/>
+        
+        <!-- 高级选项 -->
+        <param name="skip_filter" type="boolean" truevalue="true" falsevalue="false" checked="false" 
+               label="Skip filtering" help="Skip raw data filtering step (use if input is already clean data)"/>
+    </inputs>
+    <outputs>
+        <!-- 主要输出 -->
+        <data name="mitogenome" format="fasta" from_work_dir="workdir/mitogenome.fasta" 
+              label="${tool.name} on ${on_string}: Mitogenome Assembly"/>
+        <data name="annotation_gbf" format="genbank" from_work_dir="workdir/annotation.gbf" 
+              label="${tool.name} on ${on_string}: GenBank Annotation"/>
+        
+        <!-- 可视化输出 -->
+        <data name="circos_svg" format="svg" from_work_dir="workdir/visualization.svg" 
+              label="${tool.name} on ${on_string}: Circos Plot (SVG)"/>
+        <data name="circos_png" format="png" from_work_dir="workdir/visualization.png" 
+              label="${tool.name} on ${on_string}: Circos Plot (PNG)"/>
+        
+        <!-- 序列输出 -->
+        <data name="cds_fasta" format="fasta" from_work_dir="workdir/cds.fasta" 
+              label="${tool.name} on ${on_string}: CDS Sequences"/>
+        <data name="trna_fasta" format="fasta" from_work_dir="workdir/trna.fasta" 
+              label="${tool.name} on ${on_string}: tRNA Sequences"/>
+        <data name="rrna_fasta" format="fasta" from_work_dir="workdir/rrna.fasta" 
+              label="${tool.name} on ${on_string}: rRNA Sequences"/>
+        
+        <!-- 报告输出 -->
+        <data name="summary" format="txt" from_work_dir="workdir/summary.txt" 
+              label="${tool.name} on ${on_string}: Summary Report"/>
+        <data name="overlap_info" format="txt" from_work_dir="workdir/overlap_info.txt" 
+              label="${tool.name} on ${on_string}: Overlap Information"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="9">
+            <param name="fq1" value="test_R1.fq.gz"/>
+            <param name="fq2" value="test_R2.fq.gz"/>
+            <param name="clade" value="Chordata"/>
+            <param name="genetic_code" value="2"/>
+            <param name="fastq_read_length" value="150"/>
+            <param name="assembler" value="megahit"/>
+            <output name="mitogenome" file="expected_mitogenome.fasta" compare="sim_size"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**MitoZ - Animal Mitochondrial Genome Assembly, Annotation and Visualization**
+================================================================================
+
+MitoZ is a comprehensive toolkit for de novo assembly, annotation, and visualization 
+of animal mitochondrial genomes from raw sequencing data.
+
+**Overview**
+------------
+
+MitoZ provides a "one-click" solution that:
+
+1. **Filters** raw sequencing data (optional)
+2. **Assembles** mitochondrial genome using MEGAHIT or SPAdes
+3. **Identifies** mitochondrial sequences using HMM profiles
+4. **Annotates** protein-coding genes (PCGs), tRNAs, and rRNAs
+5. **Visualizes** the mitogenome with Circos plots
+
+**Inputs**
+----------
+
+- **FASTQ files**: Paired-end (recommended) or single-end reads
+  - Illumina, BGI-SEQ, or similar short-read platforms
+  - Whole-genome shotgun sequencing data
+  - 100-200bp read length recommended
+  
+- **Taxonomic information**: Clade and genetic code for proper annotation
+
+**Key Parameters**
+------------------
+
+- **Clade**: Choose between Chordata (vertebrates) or Arthropoda
+- **Genetic code**: NCBI translation table (2 for vertebrate mitochondrial)
+- **Data size**: Amount of data to use for assembly (3 Gbp typically sufficient)
+- **K-mers**: Assembly k-mer sizes (larger values recommended first)
+
+**Best Practices**
+------------------
+
+Based on Meng et al. (2019) and author recommendations:
+
+1. **Start with less data**: Try 0.3-1 Gbp first, then increase if needed
+2. **Use larger k-mers first**: e.g., 59 79 99 119 141 for MEGAHIT
+3. **Check circularity**: Examine overlap_information file for confirmation
+4. **Verify coverage**: Check Circos plot for coverage distribution
+
+**Outputs**
+-----------
+
+1. **Mitogenome Assembly**: Complete or partial mitochondrial genome (FASTA)
+2. **GenBank Annotation**: Full annotation with gene features (.gbf)
+3. **Circos Plots**: Visualization showing genes and coverage (SVG/PNG)
+4. **CDS/tRNA/rRNA**: Individual gene sequences (FASTA)
+5. **Summary Report**: Assembly and annotation statistics
+6. **Overlap Information**: Circularity verification data
+
+**Supported Clades**
+--------------------
+
+- **Chordata**: Mammals, birds, reptiles, amphibians, fish
+- **Arthropoda**: Insects, crustaceans, arachnids, myriapods
+
+**Genetic Codes**
+-----------------
+
+- 2: Vertebrate Mitochondrial (most common for vertebrates)
+- 5: Invertebrate Mitochondrial (most arthropods)
+- See NCBI for other codes: https://www.ncbi.nlm.nih.gov/Taxonomy/Utils/wprintgc.cgi
+
+**Tips**
+--------
+
+- For **circular mitogenome**: Check if overlap_information shows >10bp overlap
+- For **missing genes**: Try using less data or different k-mer sizes
+- For **contamination**: Set appropriate requiring_taxa to filter non-target sequences
+
+**Citation**
+------------
+
+Meng G, Li Y, Yang C, Liu S. MitoZ: a toolkit for animal mitochondrial genome 
+assembly, annotation and visualization. Nucleic Acids Research. 2019;47(11):e63.
+https://doi.org/10.1093/nar/gkz173
+
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1093/nar/gkz173</citation>
+    </citations>
+</tool>

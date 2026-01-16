@@ -1,0 +1,194 @@
+<tool id="haplogrep3" name="Haplogrep3" version="3.2.2+galaxy0" profile="21.05">
+    <description>Mitochondrial DNA haplogroup classification</description>
+    <macros>
+        <token name="@TOOL_VERSION@">3.2.2</token>
+        <token name="@GALAXY_VERSION@">galaxy0</token>
+    </macros>
+    <requirements>
+        <container type="docker">haplogrep3:3.2.2</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        #if str($input_file.ext) == "fasta" or str($input_file.ext) == "fa":
+            ln -s '$input_file' input.fasta &&
+        #else if str($input_file.ext) == "vcf":
+            ln -s '$input_file' input.vcf &&
+        #else:
+            ln -s '$input_file' input.hsd &&
+        #end if
+        
+        haplogrep3 classify
+            --tree '$tree'
+            #if str($input_file.ext) == "fasta" or str($input_file.ext) == "fa":
+                --in input.fasta
+            #else if str($input_file.ext) == "vcf":
+                --in input.vcf
+            #else:
+                --in input.hsd
+            #end if
+            --out '$output'
+            
+            #if str($distance_metric) != "kulczynski":
+                --metric '$distance_metric'
+            #end if
+            
+            #if $extend_report:
+                --extend-report
+            #end if
+            
+            #if $chip and str($input_file.ext) == "vcf":
+                --chip
+            #end if
+            
+            #if int($hits) > 1:
+                --hits $hits
+            #end if
+            
+            #if $skip_alignment_rules and (str($input_file.ext) == "fasta" or str($input_file.ext) == "fa"):
+                --skip-alignment-rules
+            #end if
+            
+            #if $het_level:
+                --hetLevel $het_level
+            #end if
+            
+            #if $write_fasta:
+                --write-fasta
+            #end if
+            
+            #if $write_fasta_msa:
+                --write-fasta-msa
+            #end if
+    ]]></command>
+    <inputs>
+        <param name="input_file" type="data" format="fasta,vcf,tabular" label="Input mtDNA profile" help="Upload your mtDNA profiles aligned to rCRS or RSRS. Supported formats: FASTA, VCF, or HSD (tabular text format)."/>
+        
+        <param name="tree" type="select" label="Phylogenetic tree" help="Select the phylogenetic tree for haplogroup classification.">
+            <option value="phylotree-fu-rcrs@1.2" selected="true">PhyloTree 17 - Forensic Update 1.2 (rCRS)</option>
+            <option value="phylotree-fu-rcrs@1.0">PhyloTree 17 - Forensic Update 1.0 (rCRS)</option>
+            <option value="phylotree-rcrs@17.2">PhyloTree 17.2 (rCRS)</option>
+            <option value="phylotree-rcrs@17.0">PhyloTree 17.0 (rCRS)</option>
+            <option value="phylotree-rcrs@16.0">PhyloTree 16.0 (rCRS)</option>
+            <option value="phylotree-rcrs@15.0">PhyloTree 15.0 (rCRS)</option>
+            <option value="phylotree-rsrs@17.0">PhyloTree 17.0 (RSRS)</option>
+        </param>
+        
+        <param name="distance_metric" type="select" label="Distance metric" help="Distance function used for haplogroup classification.">
+            <option value="kulczynski" selected="true">Kulczynski (Default)</option>
+            <option value="hamming">Hamming</option>
+            <option value="jaccard">Jaccard</option>
+            <option value="kimura">Kimura</option>
+        </param>
+        
+        <param name="extend_report" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Extended report" help="Include additional information on SNPs (found and remaining polymorphisms)."/>
+        
+        <param name="chip" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Genotyping array data" help="Enable if input VCF is from genotyping arrays. Limits analysis range to array SNPs only."/>
+        
+        <param name="hits" type="integer" value="1" min="1" max="20" label="Number of top hits" help="Number of best haplogroup hits to export per sample. Default: 1 (top hit only)."/>
+        
+        <param name="skip_alignment_rules" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Skip alignment rules" help="Skip mtDNA nomenclature correction rules for FASTA input. Not recommended unless you know what you are doing."/>
+        
+        <param name="het_level" type="float" value="0.9" min="0.0" max="1.0" optional="true" label="Heteroplasmy level threshold" help="Add heteroplasmies with a level greater than this value from VCF to the profile. Default: 0.9"/>
+        
+        <param name="write_fasta" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Write FASTA output" help="Generate results in FASTA format."/>
+        
+        <param name="write_fasta_msa" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Write MSA output" help="Generate multiple sequence alignment output."/>
+    </inputs>
+    <outputs>
+        <data name="output" format="tabular" label="${tool.name} on ${on_string}: Classification Results"/>
+        <data name="fasta_output" format="fasta" from_work_dir="*.fasta" label="${tool.name} on ${on_string}: FASTA">
+            <filter>write_fasta</filter>
+        </data>
+        <data name="msa_output" format="fasta" from_work_dir="*.msa.fasta" label="${tool.name} on ${on_string}: MSA">
+            <filter>write_fasta_msa</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input_file" value="test_mtdna.vcf" ftype="vcf"/>
+            <param name="tree" value="phylotree-rcrs@17.2"/>
+            <param name="distance_metric" value="kulczynski"/>
+            <param name="extend_report" value="false"/>
+            <output name="output" file="expected_haplogroups.txt" compare="sim_size"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**Haplogrep3 - Mitochondrial DNA Haplogroup Classification**
+=============================================================
+
+Haplogrep 3 is a fast and free haplogroup classification tool for human mitochondrial DNA (mtDNA). 
+Upload your mtDNA profiles aligned to rCRS (revised Cambridge Reference Sequence) or RSRS 
+(Reconstructed Sapiens Reference Sequence) and receive mitochondrial haplogroups in return.
+
+**Applications**
+----------------
+
+- **Medical Genetics**: Disease association studies, mitochondrial disorder diagnosis
+- **Forensic Science**: Maternal lineage identification, missing persons cases
+- **Evolutionary Research**: Human population studies, migration patterns
+- **Population Genetics**: Ancestry determination, demographic history reconstruction
+
+**Input Formats**
+-----------------
+
+1. **FASTA**: Mitochondrial genome sequences (complete or partial)
+2. **VCF**: Variant Call Format from sequencing or genotyping arrays
+3. **HSD**: Tab-delimited text format with sample ID, range, and variants
+
+**Phylogenetic Trees**
+----------------------
+
+Haplogrep uses Phylotree, the most comprehensive mtDNA phylogeny:
+
+- **PhyloTree 17 Forensic Update**: Optimized for forensic applications
+- **PhyloTree 17.x**: Latest research-grade phylogeny (6401+ haplogroups)
+- **rCRS**: Revised Cambridge Reference Sequence (most common)
+- **RSRS**: Reconstructed Sapiens Reference Sequence (ancestral root)
+
+**Distance Metrics**
+--------------------
+
+- **Kulczynski** (Default): Best overall performance, recommended for most cases
+- **Hamming**: Simple distance counting mismatches
+- **Jaccard**: Similarity coefficient based on shared variants
+- **Kimura**: Evolutionary distance considering transition/transversion bias
+
+**Output**
+----------
+
+Tab-delimited file containing:
+
+- Sample ID
+- Assigned haplogroup
+- Quality score (0-100%)
+- Expected and found variants
+- Remaining (private) variants
+
+**Best Practices**
+------------------
+
+1. Use complete mitochondrial genome sequences when possible
+2. For partial sequences, specify the sequenced range
+3. Choose the appropriate reference (rCRS for most published studies)
+4. Use Forensic Update trees for forensic applications
+5. Quality scores >90% indicate high-confidence assignments
+
+**Citation**
+------------
+
+If you use Haplogrep3 in your research, please cite:
+
+Schönherr S, Weissensteiner H, Kronenberg F, Forer L. 
+*Haplogrep 3 - an interactive haplogroup classification and analysis platform.* 
+Nucleic Acids Res. 2023. https://doi.org/10.1093/nar/gkad284
+
+**Links**
+---------
+
+- Web Service: https://haplogrep.i-med.ac.at
+- GitHub: https://github.com/genepi/haplogrep3
+- Documentation: https://haplogrep.readthedocs.io
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1093/nar/gkad284</citation>
+    </citations>
+</tool>

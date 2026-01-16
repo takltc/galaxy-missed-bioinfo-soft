@@ -1,0 +1,9 @@
+<toolbox monitor="true">
+    <section id="str_detection" name="Short Tandem Repeat Detection">
+        <label id="expansionhunter_denovo_label" text="ExpansionHunter Denovo"/>
+        <tool file="expansionhunter_denovo/expansionhunter_denovo_profile.xml"/>
+        <tool file="expansionhunter_denovo/expansionhunter_denovo_merge.xml"/>
+        <tool file="expansionhunter_denovo/expansionhunter_denovo_locus.xml"/>
+        <tool file="expansionhunter_denovo/expansionhunter_denovo_motif.xml"/>
+    </section>
+</toolbox>

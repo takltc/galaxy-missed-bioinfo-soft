@@ -1,0 +1,154 @@
+<tool id="mutserve_call" name="Mutserve Call" version="2.0.0-rc15+galaxy0" profile="21.05">
+    <description>Detect homoplasmic and heteroplasmic mtDNA variants</description>
+    <macros>
+        <token name="@TOOL_VERSION@">2.0.0-rc15</token>
+        <token name="@GALAXY_VERSION@">galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">mutserve</requirement>
+        <container type="docker">omniverse/mutserve:2.0.0-rc15</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        ln -s '$input_bam' input.bam &&
+        #if $input_bam.metadata.bam_index:
+            ln -s '$input_bam.metadata.bam_index' input.bam.bai &&
+        #end if
+        
+        mutserve call
+            --reference '$reference'
+            --output output.vcf.gz
+            --threads \${GALAXY_SLOTS:-4}
+            --level $heteroplasmy_level
+            --mapQ $mapQ
+            --baseQ $baseQ
+            --alignQ $alignQ
+            #if str($contig_name) != '':
+                --contig-name '$contig_name'
+            #end if
+            #if $baq:
+                --baq
+            #end if
+            #if $no_freq:
+                --noFreq
+            #end if
+            #if $write_raw:
+                --writeRaw
+            #end if
+            #if $deletions:
+                --deletions
+            #end if
+            #if $insertions:
+                --insertions
+            #end if
+            input.bam
+        
+        #if $write_raw:
+            && mv output.raw.txt '$raw_output'
+        #end if
+    ]]></command>
+    <inputs>
+        <param name="input_bam" type="data" format="bam,cram" label="Input BAM/CRAM file" help="Aligned reads file. Must be coordinate-sorted and indexed."/>
+        <param name="reference" type="data" format="fasta" label="Reference genome (rCRS recommended)" help="Mitochondrial reference genome. The revised Cambridge Reference Sequence (rCRS) is recommended for human mtDNA."/>
+        <param name="heteroplasmy_level" type="float" value="0.01" min="0.001" max="0.5" label="Minimum heteroplasmy level" help="Minimum variant allele frequency to call heteroplasmic variants. Default: 0.01 (1%). Literature suggests 1-5% threshold for optimal accuracy."/>
+        <param name="mapQ" type="integer" value="20" min="0" max="60" label="Minimum mapping quality" help="Reads with mapping quality below this value will be filtered. Default: 20"/>
+        <param name="baseQ" type="integer" value="20" min="0" max="60" label="Minimum base quality" help="Bases with quality below this value will be filtered. Default: 20"/>
+        <param name="alignQ" type="integer" value="30" min="0" max="60" label="Minimum alignment quality" help="Alignment quality threshold. Default: 30"/>
+        <param name="contig_name" type="text" value="" optional="true" label="Contig name" help="Specify mtDNA contig name in whole-genome BAM files (e.g., 'chrM', 'MT'). Leave empty for mtDNA-only files."/>
+        <param name="baq" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Enable BAQ" help="Enable Base Alignment Quality recalculation. Requires specific rCRS reference file."/>
+        <param name="no_freq" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Disable 1000G frequency" help="Disable 1000 Genomes population frequency annotation."/>
+        <param name="write_raw" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Output raw data" help="Write raw variant data file with detailed statistics."/>
+        <param name="deletions" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Call deletions (beta)" help="Enable deletion calling. This feature is in beta."/>
+        <param name="insertions" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Call insertions (beta)" help="Enable insertion calling. This feature is in beta."/>
+    </inputs>
+    <outputs>
+        <data name="vcf_output" format="vcf_bgzip" from_work_dir="output.vcf.gz" label="${tool.name} on ${on_string}: VCF"/>
+        <data name="raw_output" format="tabular" label="${tool.name} on ${on_string}: Raw Data">
+            <filter>write_raw</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input_bam" value="test_mtdna.bam"/>
+            <param name="reference" value="rCRS.fasta"/>
+            <param name="heteroplasmy_level" value="0.01"/>
+            <param name="mapQ" value="20"/>
+            <param name="baseQ" value="20"/>
+            <param name="alignQ" value="30"/>
+            <param name="baq" value="false"/>
+            <param name="write_raw" value="false"/>
+            <output name="vcf_output" file="expected_output.vcf.gz" compare="sim_size"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**Mutserve - Mitochondrial DNA Variant Caller**
+===============================================
+
+Mutserve is a specialized variant caller for detecting homoplasmic and heteroplasmic 
+variants in human mitochondrial DNA (mtDNA) from NGS data.
+
+**Overview**
+------------
+
+The mitochondrial genome (mtDNA) is a circular DNA molecule of ~16,569 bp that exists
+in multiple copies per cell (100-10,000). Variants can be:
+
+- **Homoplasmic**: Present in all mtDNA copies (VAF ~100%)
+- **Heteroplasmic**: Present in a fraction of mtDNA copies (VAF < 100%)
+
+Mutserve uses a maximum-likelihood model to accurately detect both types of variants,
+with heteroplasmy detection down to 1% variant allele frequency.
+
+**Benchmark Performance**
+-------------------------
+
+According to Ip et al. (2022) Front Genet, Mutserve showed the best performance 
+among mtDNA variant callers using synthetic benchmark datasets (F1 score = 0.74).
+
+**Inputs**
+----------
+
+- **BAM/CRAM file**: Coordinate-sorted and indexed alignment file
+- **Reference genome**: rCRS (revised Cambridge Reference Sequence) recommended
+
+**Key Parameters**
+------------------
+
+- **Heteroplasmy level** (default: 0.01): Minimum VAF threshold for heteroplasmic calls.
+  Literature suggests 1-5% threshold for optimal balance between sensitivity and specificity.
+- **mapQ** (default: 20): Minimum mapping quality filter
+- **baseQ** (default: 20): Minimum base quality filter
+- **alignQ** (default: 30): Minimum alignment quality threshold
+
+**Outputs**
+-----------
+
+1. **VCF file**: Compressed VCF with detected variants. Heteroplasmies are coded as 
+   1/0 genotypes with allele frequency in the AF field.
+2. **Raw data** (optional): Tab-delimited file with detailed variant statistics including
+   major/minor base calls and variant levels.
+
+**Best Practices**
+------------------
+
+Based on literature (PMID: 35350246):
+
+- Use heteroplasmy threshold of 1-5% for clinical applications
+- Higher thresholds (5%) increase specificity but may miss low-level heteroplasmies
+- For contamination-sensitive studies, use 10% threshold
+- Ensure samples are free from contamination (use haplocheck for QC)
+
+**Citation**
+------------
+
+Weissensteiner H, Forer L, Fendt L, et al. Contamination detection in sequencing 
+studies using the mitochondrial phylogeny. Genome Res. 2021;31:309-316.
+
+Weissensteiner H, Forer L, Fuchsberger C, et al. mtDNA-Server: next-generation 
+sequencing data analysis of human mitochondrial DNA in the cloud. 
+Nucleic Acids Res. 2016;44:W64-9.
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1101/gr.256545.119</citation>
+        <citation type="doi">10.1093/nar/gkw247</citation>
+    </citations>
+</tool>

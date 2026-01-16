@@ -1,0 +1,5 @@
+<toolbox monitor="true">
+    <section id="mtdna_analysis" name="mtDNA Analysis">
+        <tool file="haplogrep3/haplogrep3.xml" />
+    </section>
+</toolbox>

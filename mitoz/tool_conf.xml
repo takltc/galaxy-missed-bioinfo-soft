@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<toolbox monitor="true">
+    <section id="mitoz" name="MitoZ - Mitochondrial Genome Tools">
+        <tool file="mitoz/mitoz_all.xml" />
+    </section>
+</toolbox>

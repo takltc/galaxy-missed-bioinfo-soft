@@ -1,0 +1,97 @@
+<tool id="expansionhunter_denovo_locus" name="ExpansionHunter Denovo Locus Analysis" version="0.9.0+galaxy0" profile="21.05">
+    <description>Case-control or outlier analysis at specific genomic loci</description>
+    <macros>
+        <token name="@TOOL_VERSION@">0.9.0</token>
+        <token name="@GALAXY_VERSION@">galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">expansionhunterdenovo</requirement>
+        <container type="docker">quay.io/biocontainers/expansionhunterdenovo:0.9.0--h6ac36c1_11</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        #if str($analysis_type.analysis_mode) == "casecontrol":
+            python3 \$CONDA_PREFIX/share/ExpansionHunterDenovo-@TOOL_VERSION@/scripts/casecontrol.py locus
+                --manifest '$analysis_type.manifest'
+                --multisample-profile '$multisample_profile'
+                --output locus_results.tsv
+        #else:
+            python3 \$CONDA_PREFIX/share/ExpansionHunterDenovo-@TOOL_VERSION@/scripts/outlier.py locus
+                --manifest '$analysis_type.manifest'
+                --multisample-profile '$multisample_profile'
+                --output locus_results.tsv
+        #end if
+    ]]></command>
+    <inputs>
+        <param name="multisample_profile" type="data" format="json" label="Multisample Profile" help="Combined profile from the merge step"/>
+        <conditional name="analysis_type">
+            <param name="analysis_mode" type="select" label="Analysis Mode">
+                <option value="casecontrol" selected="true">Case-Control Analysis</option>
+                <option value="outlier">Outlier Analysis</option>
+            </param>
+            <when value="casecontrol">
+                <param name="manifest" type="data" format="tabular" label="Manifest file" help="TSV file with columns: sample_name, case/control status, path_to_profile"/>
+            </when>
+            <when value="outlier">
+                <param name="manifest" type="data" format="tabular" label="Manifest file" help="TSV file with columns: sample_name, case/control status, path_to_profile"/>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="locus_results" format="tabular" from_work_dir="locus_results.tsv" label="${tool.name} on ${on_string}: Locus Results"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="multisample_profile" value="merged.json"/>
+            <conditional name="analysis_type">
+                <param name="analysis_mode" value="casecontrol"/>
+                <param name="manifest" value="manifest.tsv"/>
+            </conditional>
+            <output name="locus_results" file="expected_locus.tsv" compare="sim_size"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**ExpansionHunter Denovo - Locus Analysis**
+============================================
+
+Perform statistical analysis to identify significant repeat expansions at specific genomic loci.
+
+**Analysis Modes**
+------------------
+
+**Case-Control Analysis**
+    Appropriate when cases are enriched for expansions of the same STR.
+    Uses Wilcoxon rank-sum test to compare anchored IRR counts between groups.
+    
+    *Example use case*: Comparing ALS patients to healthy controls to identify C9orf72 expansion.
+
+**Outlier Analysis**
+    Appropriate for heterogeneous cohorts where no single expansion is expected to be enriched.
+    Computes z-scores based on bootstrapped 95th percentile distribution.
+    
+    *Example use case*: Screening patients with diverse ataxia phenotypes for rare expansions.
+
+**Manifest File Format**
+------------------------
+
+Tab-separated file with three columns::
+
+    sample_name    status    path_to_profile
+    sample1        case      /path/to/sample1.str_profile.json
+    sample2        control   /path/to/sample2.str_profile.json
+    sample3        case      /path/to/sample3.str_profile.json
+
+**Output**
+----------
+
+Ranked list of genomic loci with statistical significance measures.
+
+**Citation**
+------------
+
+Dolzhenko E, et al. ExpansionHunter Denovo: a computational method for locating known and novel repeat expansions in short-read sequencing data. Genome Biol. 2020;21(1):102.
+
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1186/s13059-020-02017-z</citation>
+    </citations>
+</tool>

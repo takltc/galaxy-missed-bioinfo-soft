@@ -1,0 +1,110 @@
+<tool id="expansionhunter_denovo_profile" name="ExpansionHunter Denovo Profile" version="0.9.0+galaxy0" profile="21.05">
+    <description>Generate STR profile from BAM/CRAM for novel repeat expansion detection</description>
+    <macros>
+        <token name="@TOOL_VERSION@">0.9.0</token>
+        <token name="@GALAXY_VERSION@">galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">expansionhunterdenovo</requirement>
+        <container type="docker">quay.io/biocontainers/expansionhunterdenovo:0.9.0--h6ac36c1_11</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        ln -s '$reads' input.bam &&
+        #if $reads.metadata.bam_index:
+            ln -s '$reads.metadata.bam_index' input.bam.bai &&
+        #end if
+        
+        ExpansionHunterDenovo profile
+            --reads input.bam
+            --reference '$reference.fields.path'
+            --output-prefix output
+            --min-anchor-mapq $min_anchor_mapq
+            --max-irr-mapq $max_irr_mapq
+            #if $log_reads:
+                --log-reads
+            #end if
+    ]]></command>
+    <inputs>
+        <param name="reads" type="data" format="bam" label="Input BAM/CRAM file" help="Aligned reads file. Must be coordinate-sorted and indexed."/>
+        <param name="reference" type="select" label="Reference genome">
+            <options from_data_table="fasta_indexes"/>
+        </param>
+        <param name="min_anchor_mapq" type="integer" value="50" min="0" max="60" label="Minimum anchor read MAPQ" help="Minimum mapping quality for anchor reads that flank the repeat region. Default: 50"/>
+        <param name="max_irr_mapq" type="integer" value="40" min="0" max="60" label="Maximum in-repeat read MAPQ" help="Maximum mapping quality for in-repeat reads. Reads with MAPQ above this are considered well-mapped. Default: 40"/>
+        <param name="log_reads" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Log reads" help="Output detailed read-level information for each identified repeat"/>
+    </inputs>
+    <outputs>
+        <data name="str_profile" format="json" from_work_dir="output.str_profile.json" label="${tool.name} on ${on_string}: STR Profile"/>
+        <data name="locus_tsv" format="tabular" from_work_dir="output.locus.tsv" label="${tool.name} on ${on_string}: Locus Summary"/>
+        <data name="motif_tsv" format="tabular" from_work_dir="output.motif.tsv" label="${tool.name} on ${on_string}: Motif Summary"/>
+        <data name="reads_tsv" format="tabular" from_work_dir="output.reads.tsv" label="${tool.name} on ${on_string}: Read Details">
+            <filter>log_reads</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="3">
+            <param name="reads" value="test.bam"/>
+            <param name="reference" value="hg38"/>
+            <param name="min_anchor_mapq" value="50"/>
+            <param name="max_irr_mapq" value="40"/>
+            <param name="log_reads" value="false"/>
+            <output name="str_profile" file="expected_profile.json" compare="sim_size"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**ExpansionHunter Denovo - Profile**
+=====================================
+
+ExpansionHunter Denovo (EHdn) is a suite of tools for detecting novel expansions of short tandem repeats (STRs). 
+This tool generates genome-wide STR profiles from BAM/CRAM files.
+
+**Overview**
+------------
+
+The ``profile`` command scans aligned reads to identify:
+
+- **Anchored in-repeat reads (IRRs)**: Reads originating inside STRs whose mates are aligned to flanking sequences
+- **Paired IRRs**: Read pairs where both mates originate inside the same STR
+
+These profiles can then be compared across samples using the merge and analysis tools.
+
+**Inputs**
+----------
+
+- **BAM/CRAM file**: Coordinate-sorted and indexed alignment file (100-200bp reads)
+- **Reference genome**: FASTA file matching the alignment reference
+
+**Key Parameters**
+------------------
+
+- **min-anchor-mapq** (default: 50): Minimum MAPQ for anchor reads. Higher values increase specificity.
+- **max-irr-mapq** (default: 40): Maximum MAPQ for in-repeat reads. Reads above this threshold are considered confidently mapped.
+
+**Outputs**
+-----------
+
+1. **STR Profile (JSON)**: Main output containing per-motif IRR counts and locations
+2. **Locus Summary (TSV)**: Anchored IRR summary with genomic coordinates and normalized counts
+3. **Motif Summary (TSV)**: Paired IRR counts per repeat motif
+4. **Read Details (TSV)**: Optional detailed read-level information (when --log-reads is enabled)
+
+**Best Practices**
+------------------
+
+Based on Dolzhenko et al. (2020):
+
+- Use samples sequenced on the same platform with similar coverage
+- Ensure consistent read and fragment lengths across samples
+- Use the same aligner for all samples in comparative analyses
+- Recommended depth: 30-40x whole-genome sequencing
+
+**Citation**
+------------
+
+Dolzhenko E, et al. ExpansionHunter Denovo: a computational method for locating known and novel repeat expansions in short-read sequencing data. Genome Biol. 2020;21(1):102. doi:10.1186/s13059-020-02017-z
+
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1186/s13059-020-02017-z</citation>
+    </citations>
+</tool>

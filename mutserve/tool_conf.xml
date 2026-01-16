@@ -1,0 +1,7 @@
+<toolbox monitor="true">
+    <section id="mitochondrial_analysis" name="Mitochondrial DNA Analysis">
+        <label id="mutserve_label" text="Mutserve - mtDNA Variant Calling"/>
+        <tool file="mutserve/mutserve_call.xml"/>
+        <tool file="mutserve/mutserve_annotate.xml"/>
+    </section>
+</toolbox>

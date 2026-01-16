@@ -1,0 +1,5 @@
+<toolbox monitor="true">
+    <section id="str_detection" name="Short Tandem Repeat Detection">
+        <tool file="gangstr/gangstr.xml"/>
+    </section>
+</toolbox>

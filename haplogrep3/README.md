@@ -1,62 +1,64 @@
 # Haplogrep3 Galaxy Wrapper
 
-线粒体 DNA (mtDNA) 单倍群分类工具的 Galaxy 集成。
+[中文版](README_CN.md)
 
-## 软件信息
+Galaxy integration for the mitochondrial DNA (mtDNA) haplogroup classification tool.
 
-| 属性 | 值 |
-|------|-----|
-| 版本 | 3.2.2 |
-| 开发者 | Innsbruck Medical University |
-| 许可证 | MIT |
+## Software Information
+
+| Property | Value |
+|----------|-------|
+| Version | 3.2.2 |
+| Developer | Innsbruck Medical University |
+| License | MIT |
 | DOI | 10.1093/nar/gkad284 |
 | PMID | 37070190 |
 
-## 功能概述
+## Overview
 
-Haplogrep3 用于对人类线粒体 DNA 进行单倍群分类，广泛应用于：
+Haplogrep3 is used for haplogroup classification of human mitochondrial DNA, widely applied in:
 
-- **医学遗传学**: 线粒体疾病诊断、疾病关联研究
-- **法医学**: 母系血缘鉴定、失踪人员案件
-- **进化研究**: 人类群体研究、迁徙模式分析
-- **群体遗传学**: 祖先溯源、人口历史重建
+- **Medical Genetics**: Mitochondrial disease diagnosis, disease association studies
+- **Forensics**: Maternal lineage identification, missing persons cases
+- **Evolutionary Studies**: Human population studies, migration pattern analysis
+- **Population Genetics**: Ancestry tracing, demographic history reconstruction
 
-## 输入格式
+## Input Formats
 
-| 格式 | 说明 |
-|------|------|
-| FASTA | 线粒体基因组序列 (完整或部分) |
-| VCF | 来自测序或基因分型芯片的变异调用格式 |
-| HSD | 制表符分隔的文本格式 (样本ID、范围、变异) |
+| Format | Description |
+|--------|-------------|
+| FASTA | Mitochondrial genome sequences (complete or partial) |
+| VCF | Variant call format from sequencing or genotyping arrays |
+| HSD | Tab-separated text format (Sample ID, Range, Variants) |
 
-## 系统发育树
+## Phylogenetic Trees
 
-| 树 | 参考序列 | 用途 |
-|----|----------|------|
-| PhyloTree 17 Forensic Update 1.2 | rCRS | 法医学应用 (推荐) |
-| PhyloTree 17.2 | rCRS | 最新研究级系统发育 |
-| PhyloTree 17.0 | rCRS/RSRS | 标准分析 |
-| PhyloTree 16.0/15.0 | rCRS | 向后兼容 |
+| Tree | Reference Sequence | Use Case |
+|------|-------------------|----------|
+| PhyloTree 17 Forensic Update 1.2 | rCRS | Forensic applications (recommended) |
+| PhyloTree 17.2 | rCRS | Latest research-grade phylogeny |
+| PhyloTree 17.0 | rCRS/RSRS | Standard analysis |
+| PhyloTree 16.0/15.0 | rCRS | Backward compatibility |
 
-## 关键参数
+## Key Parameters
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| tree | phylotree-fu-rcrs-1.2 | 系统发育树选择 |
-| metric | kulczynski | 距离度量方法 |
-| hits | 1 | 输出的 top N 命中数 |
-| hetLevel | 0.9 | 异质性水平阈值 (VCF) |
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| tree | phylotree-fu-rcrs-1.2 | Phylogenetic tree selection |
+| metric | kulczynski | Distance metric method |
+| hits | 1 | Number of top N hits to output |
+| hetLevel | 0.9 | Heteroplasmy level threshold (VCF) |
 
-## Docker 容器
+## Docker Container
 
-自建镜像：
+Build custom image:
 
 ```bash
 cd docker
 docker build -t haplogrep3:3.2.2 .
 ```
 
-## 文件结构
+## File Structure
 
 ```
 haplogrep3/
@@ -64,16 +66,19 @@ haplogrep3/
 │   └── Dockerfile
 ├── haplogrep3.xml
 ├── tool_conf.xml
-└── README.md
+├── README.md
+└── README_CN.md
 ```
 
-## 引用
+## Citations
+
+If you use this tool in your research, please cite:
 
 > Schönherr S, Weissensteiner H, Kronenberg F, Forer L. 
 > Haplogrep 3 - an interactive haplogroup classification and analysis platform. 
 > Nucleic Acids Res. 2023. doi:10.1093/nar/gkad284
 
-## 相关链接
+## Links
 
 - Web Service: https://haplogrep.i-med.ac.at
 - GitHub: https://github.com/genepi/haplogrep3

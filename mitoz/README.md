@@ -1,30 +1,33 @@
 # MitoZ Galaxy Wrapper
 
-MitoZ 是一个用于动物线粒体基因组组装、注释和可视化的综合性工具包。
+[中文版](README_CN.md)
 
-## 软件信息
+MitoZ is a comprehensive toolkit for animal mitochondrial genome assembly, annotation, and visualization.
 
-- **版本**: 3.6
-- **开发者**: Guanliang Meng (BGI-Shenzhen)
-- **许可证**: GPL-3.0
-- **原始论文**: Meng G, et al. (2019) Nucleic Acids Research
-- **DOI**: 10.1093/nar/gkz173
-- **PMID**: 30864657
-- **GitHub**: https://github.com/linzhi2013/MitoZ
+## Software Information
 
-## 工具组件
+| Property | Value |
+|----------|-------|
+| Version | 3.6 |
+| Developer | Guanliang Meng (BGI-Shenzhen) |
+| License | GPL-3.0 |
+| DOI | 10.1093/nar/gkz173 |
+| PMID | 30864657 |
+| GitHub | https://github.com/linzhi2013/MitoZ |
+
+## Tool Components
 
 ### MitoZ All-in-One (mitoz_all)
 
-一站式解决方案，从原始 FASTQ 数据到完整的线粒体基因组注释：
+One-stop solution from raw FASTQ data to complete mitochondrial genome annotation:
 
-1. **数据过滤**: 使用 fastp 清洗原始数据
-2. **从头组装**: 使用 MEGAHIT 或 SPAdes 组装
-3. **序列识别**: 使用 HMM profiles 识别线粒体序列
-4. **基因注释**: 注释 PCGs、tRNAs 和 rRNAs
-5. **可视化**: 生成 Circos 图
+1. **Data Filtering**: Clean raw data using fastp
+2. **De novo Assembly**: Assembly using MEGAHIT or SPAdes
+3. **Sequence Identification**: Identify mitochondrial sequences using HMM profiles
+4. **Gene Annotation**: Annotate PCGs, tRNAs, and rRNAs
+5. **Visualization**: Generate Circos plots
 
-## 工作流程
+## Workflow
 
 ```
 Raw FASTQ files (PE or SE)
@@ -48,60 +51,60 @@ Raw FASTQ files (PE or SE)
     Annotated Mitogenome + GenBank + Circos Plot
 ```
 
-## 支持的物种分类
+## Supported Taxonomic Groups
 
-| 分类群 | 遗传密码 | 说明 |
-|--------|----------|------|
-| Chordata | 2 | 脊椎动物 (哺乳类、鸟类、爬行类、两栖类、鱼类) |
-| Arthropoda | 5 | 节肢动物 (昆虫、甲壳类、蛛形纲) |
+| Clade | Genetic Code | Description |
+|-------|--------------|-------------|
+| Chordata | 2 | Vertebrates (mammals, birds, reptiles, amphibians, fish) |
+| Arthropoda | 5 | Arthropods (insects, crustaceans, arachnids) |
 
-## 最佳实践参数
+## Best Practice Parameters
 
-基于 Meng et al. (2019) 论文和作者建议：
+Based on Meng et al. (2019) paper and author recommendations:
 
-| 参数 | 推荐值 | 说明 |
-|------|--------|------|
-| data_size | 0.3-3 Gbp | 先尝试小数据量，失败后再增加 |
-| kmers_megahit | 59 79 99 119 141 | 优先使用较大的 k-mer |
-| fastq_read_length | 100-200bp | 短读长测序 |
-| memory | 50 GB | MEGAHIT 最大内存 |
+| Parameter | Recommended Value | Description |
+|-----------|-------------------|-------------|
+| data_size | 0.3-3 Gbp | Try small data first, increase if failed |
+| kmers_megahit | 59 79 99 119 141 | Prefer larger k-mers |
+| fastq_read_length | 100-200bp | Short-read sequencing |
+| memory | 50 GB | MEGAHIT maximum memory |
 
-## 输入格式
+## Input Formats
 
-- **FASTQ**: Paired-end 或 Single-end 数据
-- **支持压缩**: gzip 压缩格式 (.gz)
-- **平台**: Illumina, BGI-SEQ 等短读长平台
+- **FASTQ**: Paired-end or Single-end data
+- **Compression**: Supports gzip format (.gz)
+- **Platform**: Illumina, BGI-SEQ and other short-read platforms
 
-## 输出文件
+## Output Files
 
-| 文件 | 格式 | 说明 |
-|------|------|------|
-| mitogenome.fasta | FASTA | 组装的线粒体基因组序列 |
-| annotation.gbf | GenBank | 完整的基因注释文件 |
-| visualization.svg | SVG | Circos 可视化图 (矢量) |
-| visualization.png | PNG | Circos 可视化图 (位图) |
-| cds.fasta | FASTA | 蛋白编码基因序列 |
-| trna.fasta | FASTA | tRNA 基因序列 |
-| rrna.fasta | FASTA | rRNA 基因序列 |
-| summary.txt | TXT | 组装和注释统计摘要 |
-| overlap_info.txt | TXT | 环状验证信息 |
+| File | Format | Description |
+|------|--------|-------------|
+| mitogenome.fasta | FASTA | Assembled mitochondrial genome sequence |
+| annotation.gbf | GenBank | Complete gene annotation file |
+| visualization.svg | SVG | Circos visualization (vector) |
+| visualization.png | PNG | Circos visualization (raster) |
+| cds.fasta | FASTA | Protein-coding gene sequences |
+| trna.fasta | FASTA | tRNA gene sequences |
+| rrna.fasta | FASTA | rRNA gene sequences |
+| summary.txt | TXT | Assembly and annotation statistics |
+| overlap_info.txt | TXT | Circular verification information |
 
-## Docker 容器
+## Docker Container
 
-使用官方预构建镜像：
+Using official pre-built image:
 ```bash
 docker pull guanliangmeng/mitoz:3.6
 ```
 
-或使用本目录下的 Dockerfile 自行构建：
+Or build using the Dockerfile in this directory:
 ```bash
 cd docker
 docker build -t mitoz:3.6 .
 ```
 
-## 使用示例
+## Usage Examples
 
-### 基本用法 (Paired-end 数据)
+### Basic Usage (Paired-end data)
 ```bash
 mitoz all \
     --outprefix sample1 \
@@ -118,7 +121,7 @@ mitoz all \
     --requiring_taxa Chordata
 ```
 
-### 小数据量快速测试
+### Quick Test with Small Data
 ```bash
 mitoz all \
     --outprefix sample1 \
@@ -134,21 +137,21 @@ mitoz all \
     --memory 8
 ```
 
-## 常见问题
+## Troubleshooting
 
-### 1. 线粒体基因组不完整
-- 尝试使用更少的数据 (0.3 Gbp)
-- 尝试不同的 k-mer 大小
+### 1. Incomplete Mitochondrial Genome
+- Try using less data (0.3 Gbp)
+- Try different k-mer sizes
 
-### 2. 缺少 tRNA 注释
-- 确保 shell 为 bash
-- 检查 MitoZ 版本 (建议使用 3.6)
+### 2. Missing tRNA Annotations
+- Ensure shell is bash
+- Check MitoZ version (recommend 3.6)
 
-### 3. 内存不足
-- 减少 `--memory` 参数
-- 减少 `--data_size_for_mt_assembly`
+### 3. Out of Memory
+- Reduce `--memory` parameter
+- Reduce `--data_size_for_mt_assembly`
 
-## 文件结构
+## File Structure
 
 ```
 mitoz/
@@ -156,22 +159,23 @@ mitoz/
 │   └── Dockerfile
 ├── mitoz_all.xml
 ├── tool_conf.xml
-└── README.md
+├── README.md
+└── README_CN.md
 ```
 
-## 引用
+## Citations
 
-如果您在研究中使用了此工具，请引用：
+If you use this tool in your research, please cite:
 
 > Meng G, Li Y, Yang C, Liu S. MitoZ: a toolkit for animal mitochondrial genome 
 > assembly, annotation and visualization. Nucleic Acids Research. 2019;47(11):e63.
 > https://doi.org/10.1093/nar/gkz173
 
-## 相关软件引用
+## Related Software Citations
 
-MitoZ 内部调用了多个软件，请同时引用：
-- fastp (数据过滤)
-- MEGAHIT/SPAdes (组装)
-- HMMER (序列识别)
-- Circos (可视化)
-- 详见: https://github.com/linzhi2013/MitoZ/wiki/Citations
+MitoZ internally calls multiple software packages, please also cite:
+- fastp (data filtering)
+- MEGAHIT/SPAdes (assembly)
+- HMMER (sequence identification)
+- Circos (visualization)
+- See: https://github.com/linzhi2013/MitoZ/wiki/Citations

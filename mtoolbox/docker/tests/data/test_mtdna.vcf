@@ -1,0 +1,19 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##contig=<ID=chrM,length=16569>
+##INFO=<ID=AF,Number=A,Type=Float,Description="Allele Frequency">
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">
+##INFO=<ID=HF,Number=A,Type=Float,Description="Heteroplasmy Fraction">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read Depth">
+##reference=rCRS_NC_012920.1
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	SAMPLE1
+chrM	73	.	A	G	100	PASS	DP=1500;AF=0.99;HF=0.99	GT:DP	1/1:1500
+chrM	263	.	A	G	100	PASS	DP=1200;AF=1.0;HF=1.0	GT:DP	1/1:1200
+chrM	750	.	A	G	100	PASS	DP=1100;AF=0.98;HF=0.98	GT:DP	1/1:1100
+chrM	1438	.	A	G	100	PASS	DP=1300;AF=1.0;HF=1.0	GT:DP	1/1:1300
+chrM	3243	.	A	G	95	PASS	DP=800;AF=0.45;HF=0.45	GT:DP	0/1:800
+chrM	4769	.	A	G	100	PASS	DP=1000;AF=1.0;HF=1.0	GT:DP	1/1:1000
+chrM	8860	.	A	G	100	PASS	DP=1100;AF=1.0;HF=1.0	GT:DP	1/1:1100
+chrM	11778	.	G	A	90	PASS	DP=900;AF=0.85;HF=0.85	GT:DP	0/1:900
+chrM	15326	.	A	G	100	PASS	DP=1200;AF=1.0;HF=1.0	GT:DP	1/1:1200

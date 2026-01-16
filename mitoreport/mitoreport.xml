@@ -1,0 +1,311 @@
+<tool id="mitoreport" name="MitoReport" version="1.2.3+galaxy0" profile="21.05">
+    <description>Mitochondrial DNA variant analysis and clinical interpretation</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.2.3</token>
+        <token name="@GALAXY_VERSION@">galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">mitoreport</requirement>
+        <container type="docker">omniverse/mitoreport:1.2.3</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        ## 创建工作目录
+        mkdir -p workdir && cd workdir &&
+        
+        ## 处理输入 VCF 文件 (确保正确的文件扩展名)
+        #if str($input_vcf.ext) == "vcf_bgzip":
+            ln -s '$input_vcf' proband.vcf.gz &&
+        #else:
+            ln -s '$input_vcf' proband.vcf &&
+        #end if
+        
+        ## 处理输入 BAM 文件
+        ln -s '$input_bam' proband.bam &&
+        #if $input_bam.metadata.bam_index:
+            ln -s '$input_bam.metadata.bam_index' proband.bam.bai &&
+        #end if
+        
+        ## 处理 MitoMap 注释文件
+        ln -s '$mitomap_annotations' mito_map_annotations.json &&
+        
+        ## 处理 gnomAD 文件
+        #if str($gnomad_vcf.ext) == "vcf_bgzip":
+            ln -s '$gnomad_vcf' gnomad.vcf.bgz &&
+            #if $gnomad_vcf.metadata.tabix_index:
+                ln -s '$gnomad_vcf.metadata.tabix_index' gnomad.vcf.bgz.tbi &&
+            #end if
+        #else:
+            ln -s '$gnomad_vcf' gnomad.vcf &&
+        #end if
+        
+        ## 处理对照 BAM 文件
+        #set $control_bams = []
+        #for $i, $control in enumerate($control_bams_section.control_bams):
+            ln -s '$control.control_bam' control_${i}.bam &&
+            #if $control.control_bam.metadata.bam_index:
+                ln -s '$control.control_bam.metadata.bam_index' control_${i}.bam.bai &&
+            #end if
+            #silent $control_bams.append("control_" + str($i) + ".bam")
+        #end for
+        
+        ## 处理母系 VCF (可选)
+        #if $maternal_section.use_maternal == "yes":
+            #if str($maternal_section.maternal_vcf.ext) == "vcf_bgzip":
+                ln -s '$maternal_section.maternal_vcf' maternal.vcf.gz &&
+            #else:
+                ln -s '$maternal_section.maternal_vcf' maternal.vcf &&
+            #end if
+        #end if
+        
+        ## 运行 MitoReport
+        java -Xmx8g -jar /opt/mitoreport/mitoreport.jar mito-report
+            #if str($input_vcf.ext) == "vcf_bgzip":
+                -vcf proband.vcf.gz
+            #else:
+                -vcf proband.vcf
+            #end if
+            -sample '$sample_name'
+            -mann mito_map_annotations.json
+            #if str($gnomad_vcf.ext) == "vcf_bgzip":
+                -gnomad gnomad.vcf.bgz
+            #else:
+                -gnomad gnomad.vcf
+            #end if
+            #if $maternal_section.use_maternal == "yes":
+                #if str($maternal_section.maternal_vcf.ext) == "vcf_bgzip":
+                    --maternal-vcf maternal.vcf.gz
+                #else:
+                    --maternal-vcf maternal.vcf
+                #end if
+                --maternal-sample '$maternal_section.maternal_sample'
+            #end if
+            proband.bam
+            #if len($control_bams) > 0:
+                #echo ' '.join($control_bams)
+            #end if
+        
+        ## 移动输出文件
+        && mv "mitoreport-${sample_name}" ../output_report
+        && cd ..
+        
+        ## 创建 HTML 集合输出
+        && cp output_report/index.html '$html_report'
+        
+        ## 打包完整报告目录
+        && tar -czf '$full_report' -C output_report .
+    ]]></command>
+    <inputs>
+        <!-- 必需输入 -->
+        <param name="input_vcf" type="data" format="vcf,vcf_bgzip" label="VEP-annotated VCF file" help="VCF file containing mitochondrial variants annotated with VEP (Variant Effect Predictor). This is the primary input for variant analysis."/>
+        
+        <param name="sample_name" type="text" value="" label="Sample name" help="Sample identifier that will be used in the output report. This should match the sample name in the VCF file.">
+            <validator type="regex" message="Sample name must contain only alphanumeric characters, hyphens, and underscores">^[A-Za-z0-9_-]+$</validator>
+        </param>
+        
+        <param name="input_bam" type="data" format="bam" label="Input BAM file" help="BAM file containing reads aligned to the mitochondrial chromosome. Must be coordinate-sorted and indexed."/>
+        
+        <param name="mitomap_annotations" type="data" format="json" label="MitoMap annotations" help="MitoMap annotations JSON file. Can be generated using the 'MitoReport Download' tool or downloaded from MitoMap."/>
+        
+        <param name="gnomad_vcf" type="data" format="vcf,vcf_bgzip" label="gnomAD mtDNA VCF" help="gnomAD mitochondrial genome population frequency VCF file (gnomad.genomes.v3.1.sites.chrM.vcf.bgz)."/>
+        
+        <!-- 对照 BAM 文件 -->
+        <section name="control_bams_section" title="Control BAM Files" expanded="false">
+            <repeat name="control_bams" title="Control BAM file" min="0" default="0">
+                <param name="control_bam" type="data" format="bam" label="Control BAM file" help="Control sample BAM file for deletion analysis normalization. Multiple control samples improve deletion detection accuracy."/>
+            </repeat>
+        </section>
+        
+        <!-- 母系样本分析 -->
+        <section name="maternal_section" title="Maternal Sample Analysis" expanded="false">
+            <param name="use_maternal" type="select" label="Include maternal sample for heteroplasmy comparison">
+                <option value="no" selected="true">No</option>
+                <option value="yes">Yes</option>
+            </param>
+            <param name="maternal_vcf" type="data" format="vcf,vcf_bgzip" optional="true" label="Maternal VCF file" help="VEP-annotated VCF file from maternal sample. Used to compare heteroplasmy levels between proband and mother."/>
+            <param name="maternal_sample" type="text" value="" optional="true" label="Maternal sample name" help="Sample identifier in the maternal VCF file.">
+                <validator type="regex" message="Sample name must contain only alphanumeric characters, hyphens, and underscores">^[A-Za-z0-9_-]*$</validator>
+            </param>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="html_report" format="html" label="${tool.name} on ${on_string}: Interactive Report"/>
+        <data name="full_report" format="tar.gz" label="${tool.name} on ${on_string}: Full Report Archive"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="input_vcf" value="test_sample.vep.vcf.gz"/>
+            <param name="sample_name" value="TEST-SAMPLE"/>
+            <param name="input_bam" value="test_sample.bam"/>
+            <param name="mitomap_annotations" value="mito_map_annotations.json"/>
+            <param name="gnomad_vcf" value="gnomad.chrM.vcf.bgz"/>
+            <output name="html_report" file="expected_report.html" compare="sim_size"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**MitoReport - Mitochondrial DNA Variant Analysis and Clinical Interpretation**
+================================================================================
+
+MitoReport is a comprehensive tool for analyzing and interpreting mitochondrial 
+DNA variants, designed for clinical genetics applications. It generates interactive
+HTML reports with variant annotations, heteroplasmy analysis, and deletion detection.
+
+**Overview**
+------------
+
+The human mitochondrial genome (mtDNA) is a ~16,569 bp circular DNA molecule present
+in multiple copies per cell. Variants in mtDNA can cause various mitochondrial 
+diseases and are characterized by:
+
+- **Heteroplasmy**: Coexistence of mutant and wild-type mtDNA copies
+- **Threshold Effect**: Clinical manifestation depends on mutation load
+- **Maternal Inheritance**: mtDNA is exclusively inherited from the mother
+
+MitoReport provides:
+
+1. **Variant Annotation**: Integration with MitoMap and gnomAD databases
+2. **Heteroplasmy Analysis**: Quantification and visualization of variant loads
+3. **Deletion Detection**: Large-scale mtDNA deletion analysis
+4. **Maternal Comparison**: Compare heteroplasmy between proband and mother
+5. **Interactive Reports**: Web-based visualization for clinical interpretation
+
+**Input Requirements**
+----------------------
+
+1. **VEP-annotated VCF**: Variants called from mtDNA sequencing, annotated with
+   Ensembl VEP (Variant Effect Predictor). Can be generated from:
+   
+   - Mutserve (recommended for mtDNA-specific calling)
+   - GATK MuTect2 mitochondrial pipeline
+   - Other variant callers with VEP annotation
+
+2. **BAM file**: Aligned reads covering the mitochondrial chromosome
+   
+   - Must be coordinate-sorted and indexed
+   - Can be extracted from WGS or targeted mtDNA sequencing
+
+3. **MitoMap annotations**: JSON file with curated mtDNA variant annotations
+   
+   - Download using MitoReport's mito-map-download command
+   - Contains disease associations, haplogroup markers, etc.
+
+4. **gnomAD VCF**: Population frequency data for mtDNA variants
+   
+   - gnomad.genomes.v3.1.sites.chrM.vcf.bgz (recommended)
+   - Essential for filtering common variants
+
+5. **Control BAMs** (optional): Reference samples for deletion normalization
+
+6. **Maternal VCF** (optional): For heteroplasmy inheritance analysis
+
+**Output Files**
+----------------
+
+1. **Interactive HTML Report**: Main output with:
+   
+   - Variant table with filtering and sorting
+   - Heteroplasmy visualization
+   - Deletion plots
+   - MitoMap annotations and links
+
+2. **Full Report Archive**: Complete output directory (tar.gz) containing:
+   
+   - index.html and all web assets
+   - JSON data files
+   - Intermediate analysis files
+
+**Clinical Applications**
+-------------------------
+
+MitoReport is designed for clinical interpretation of mtDNA variants:
+
+- **Primary Mitochondrial Disease Diagnosis**: Identify pathogenic variants
+- **Heteroplasmy Monitoring**: Track mutation loads over time or across tissues
+- **Carrier Testing**: Identify at-risk family members
+- **Prenatal Diagnosis**: When combined with chorionic villus sampling
+
+**Best Practices**
+------------------
+
+Based on literature (PMID: 36513735 - UK Best Practice Guidelines):
+
+1. **Variant Calling**: Use heteroplasmy threshold of 1-5% for clinical sensitivity
+2. **Coverage**: Minimum 500x coverage recommended for reliable heteroplasmy detection
+3. **Contamination Check**: Always run Haplocheck before interpretation
+4. **Maternal Comparison**: Include maternal sample when possible for inheritance analysis
+5. **Multiple Tissues**: Consider tissue-specific heteroplasmy for accurate assessment
+
+**Workflow Integration**
+------------------------
+
+Recommended pipeline::
+
+    BAM → Mutserve Call → VCF → VEP Annotation → MitoReport → HTML Report
+                           ↓
+                    Haplocheck (QC)
+                           ↓
+                    Haplogrep3 (Haplogroup)
+
+**Example Command**
+-------------------
+
+::
+
+    java -jar mitoreport.jar mito-report \
+        -vcf sample.vep.vcf.gz \
+        -sample SAMPLE-001 \
+        -mann mito_map_annotations.json \
+        -gnomad gnomad.genomes.v3.1.sites.chrM.vcf.bgz \
+        --maternal-vcf mother.vep.vcf.gz \
+        --maternal-sample MOTHER-001 \
+        sample.bam control1.bam control2.bam
+
+**Live Demo**
+-------------
+
+An example report is available at:
+https://bioinfomethods.github.io/mitoreport/examples/mitoreport-MITOREPORT-TEST-SAMPLE/index.html
+
+**Credits**
+-----------
+
+MitoReport is developed by the Bioinformatics Methods group at the Murdoch Childrens 
+Research Institute (MCRI), with contributions from:
+
+- Victorian Clinical Genetics Services (VCGS)
+- Australian Genomics Health Alliance
+- Brain and Mitochondrial Research Group at MCRI
+
+**External Resources Used**
+---------------------------
+
+- MitoMap: https://mitomap.org/MITOMAP
+- gnomAD: https://gnomad.broadinstitute.org/about
+- Haplogrep: https://github.com/seppinho/haplogrep-cmd
+
+**Links**
+---------
+
+- GitHub: https://github.com/bioinfomethods/mitoreport
+- Documentation: https://github.com/bioinfomethods/mitoreport/blob/main/README.md
+    ]]></help>
+    <citations>
+        <!-- MitoReport 相关文献 -->
+        <citation type="bibtex">
+@misc{mitoreport2024,
+    author = {Bioinformatics Methods Group},
+    title = {MitoReport: Interpretation software for mitochondrial variants},
+    year = {2024},
+    publisher = {GitHub},
+    url = {https://github.com/bioinfomethods/mitoreport}
+}
+        </citation>
+        <!-- UK Best Practice Guidelines for mtDNA Testing -->
+        <citation type="doi">10.1038/s41431-022-01249-w</citation>
+        <!-- Benchmark of mtDNA Variant Callers -->
+        <citation type="doi">10.3389/fgene.2022.692257</citation>
+        <!-- MitoMap Database -->
+        <citation type="doi">10.1093/nar/gky1024</citation>
+        <!-- gnomAD mtDNA -->
+        <citation type="doi">10.1038/s41586-022-05438-1</citation>
+    </citations>
+</tool>

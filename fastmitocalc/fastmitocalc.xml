@@ -1,0 +1,254 @@
+<tool id="fastmitocalc" name="fastMitoCalc" version="1.0.0+galaxy0" profile="21.05">
+    <description>Estimate mitochondrial DNA copy number from whole-genome sequencing data</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.0.0</token>
+        <token name="@GALAXY_VERSION@">galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">fastmitocalc</requirement>
+        <container type="docker">omniverse/fastmitocalc:1.0.0</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        ## 创建工作目录
+        mkdir -p workdir &&
+        
+        ## 创建符号链接确保 BAM 和索引在同一目录
+        ln -s '$input_bam' input.bam &&
+        #if $input_bam.metadata.bam_index:
+            ln -s '$input_bam.metadata.bam_index' input.bam.bai &&
+        #end if
+        
+        ## 运行 fastMitoCalc
+        perl /opt/fastMitoCalc/fastMitoCalc.pl
+            -f input.bam
+            -w workdir
+            -p /opt/fastMitoCalc/BaseCoverage
+            
+            ## 核 DNA 覆盖度估算方法
+            #if str($coverage_method.method) == "random":
+                -n $coverage_method.num_regions
+                -s $coverage_method.region_size
+            #elif str($coverage_method.method) == "chromosome":
+                -c $coverage_method.chromosome
+            #elif str($coverage_method.method) == "bed":
+                -b '$coverage_method.bed_file'
+            #end if
+            
+            ## 染色体命名选项
+            #if str($chr_prefix) != '':
+                -e '$chr_prefix'
+            #end if
+            #if str($mt_name) != '':
+                -m '$mt_name'
+            #end if
+        
+        ## 移动输出文件
+        && mv workdir/input.txt '$output_report'
+    ]]></command>
+    <inputs>
+        <param name="input_bam" type="data" format="bam" label="Input BAM file" 
+               help="Indexed BAM file from whole-genome sequencing. Must have BAM index (.bai) file."/>
+        
+        <conditional name="coverage_method">
+            <param name="method" type="select" label="Nuclear DNA coverage estimation method" 
+                   help="Method to estimate nuclear DNA coverage for mtDNA copy number calculation.">
+                <option value="random" selected="true">Random regions (default, fastest)</option>
+                <option value="chromosome">Specific chromosome</option>
+                <option value="bed">Custom BED file</option>
+            </param>
+            <when value="random">
+                <param name="num_regions" type="integer" value="3000" min="100" max="10000" 
+                       label="Number of random regions" 
+                       help="Number of randomly selected regions for nuclear DNA coverage estimation. Default: 3000"/>
+                <param name="region_size" type="integer" value="1000" min="100" max="10000" 
+                       label="Region size (bp)" 
+                       help="Size of each randomly selected region in base pairs. Default: 1000"/>
+            </when>
+            <when value="chromosome">
+                <param name="chromosome" type="integer" value="22" min="1" max="22" 
+                       label="Chromosome number" 
+                       help="Use this autosomal chromosome for nuclear DNA coverage estimation. Chromosome 22 is commonly used due to its smaller size."/>
+            </when>
+            <when value="bed">
+                <param name="bed_file" type="data" format="bed" label="BED file" 
+                       help="Custom BED file specifying regions for nuclear DNA coverage estimation. Chromosome names must match BAM file."/>
+            </when>
+        </conditional>
+        
+        <param name="chr_prefix" type="text" value="" optional="true" label="Chromosome prefix" 
+               help="Prefix for autosomal chromosomes in BAM file. Leave empty for '1,2,...,22', use 'chr' for 'chr1,chr2,...,chr22'."/>
+        
+        <param name="mt_name" type="text" value="" optional="true" label="Mitochondrial chromosome name" 
+               help="Name of mitochondrial chromosome in BAM file. Leave empty for 'MT', use 'chrM' if BAM uses UCSC naming."/>
+    </inputs>
+    <outputs>
+        <data name="output_report" format="tabular" label="${tool.name} on ${on_string}: mtDNA Copy Number Report"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input_bam" value="test_wgs.bam"/>
+            <conditional name="coverage_method">
+                <param name="method" value="random"/>
+                <param name="num_regions" value="100"/>
+                <param name="region_size" value="1000"/>
+            </conditional>
+            <output name="output_report" file="expected_output.txt" compare="sim_size"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**fastMitoCalc - Ultra-fast mtDNA Copy Number Estimation**
+==========================================================
+
+fastMitoCalc estimates mitochondrial DNA (mtDNA) copy number from whole-genome 
+sequencing (WGS) data. It is approximately 100 times faster than the original 
+mitoCalc program and can analyze an individual BAM file (with 4X average coverage 
+for nuclear DNA) in less than a minute.
+
+**Overview**
+------------
+
+Mitochondrial DNA copy number is an important biomarker that has been associated with:
+
+- **Aging**: mtDNA-CN declines with age, particularly after 65 years
+- **Cardiovascular disease**: Lower mtDNA-CN associated with increased CHD risk
+- **Neurodegenerative diseases**: Altered mtDNA-CN in Alzheimer's and Parkinson's disease
+- **Cancer**: Variable mtDNA-CN changes in different cancer types
+- **Metabolic disorders**: Associated with diabetes, obesity, and hyperlipidemia
+
+**Algorithm**
+-------------
+
+fastMitoCalc calculates mtDNA copy number using the formula::
+
+    mtDNA-CN = 2 × (mtDNA coverage / nuclear DNA coverage)
+
+The factor of 2 accounts for the diploid nuclear genome vs. the haploid mitochondrial genome.
+
+**Input Requirements**
+----------------------
+
+- **BAM file**: Coordinate-sorted and indexed BAM file from WGS
+- **Index file**: BAM index (.bai) must be present (Galaxy handles this automatically)
+
+**Coverage Estimation Methods**
+-------------------------------
+
+1. **Random regions** (default, fastest):
+   - Randomly selects N regions of specified size from autosomes
+   - Default: 3000 regions of 1000 bp each
+   - Provides robust estimation with minimal computation
+
+2. **Specific chromosome**:
+   - Uses entire chromosome for nuclear coverage estimation
+   - Chromosome 22 is commonly used due to smaller size
+   - More thorough but slower
+
+3. **Custom BED file**:
+   - User-defined regions for nuclear coverage estimation
+   - Useful for specialized analyses (e.g., off-target regions in WES)
+   - Package includes 1000G off-target regions BED file
+
+**Chromosome Naming**
+---------------------
+
+Common naming conventions:
+
++------------------+------------------+------------------+
+| Reference        | Autosomes        | Mitochondria     |
++==================+==================+==================+
+| GRCh37/38 (NCBI) | 1, 2, ... 22     | MT               |
++------------------+------------------+------------------+
+| hg19/38 (UCSC)   | chr1, chr2, ...  | chrM             |
++------------------+------------------+------------------+
+
+**Output**
+----------
+
+Tab-delimited file with the following columns:
+
+- **mt_copy_number_avg**: Estimated mtDNA copy number
+- **mt_coverage**: Average mtDNA sequencing coverage
+- **autosomal_coverage**: Average nuclear DNA coverage
+- **actual_basepairs_covered**: Total bases covered by at least one read
+- **chrom_used_for_autosomal_coverage**: Chromosomes used for nuclear coverage calculation
+
+**Interpretation**
+------------------
+
+Typical mtDNA copy number values:
+
++------------------+------------------+
+| Tissue           | mtDNA-CN Range   |
++==================+==================+
+| Blood (PBMC)     | 50-500           |
++------------------+------------------+
+| Heart            | 1000-10000       |
++------------------+------------------+
+| Liver            | 500-5000         |
++------------------+------------------+
+| Muscle           | 1000-6000        |
++------------------+------------------+
+| Brain            | 500-3000         |
++------------------+------------------+
+
+Note: Values vary significantly between individuals and depend on:
+
+- Age
+- Health status
+- Tissue type
+- Technical factors (sequencing depth, library preparation)
+
+**Best Practices**
+------------------
+
+Based on literature (PMID: 35591888, PMID: 39313624):
+
+1. **Minimum coverage**: 4X average nuclear DNA coverage recommended
+2. **Reference genome**: Ensure consistent chromosome naming
+3. **Quality control**: Remove contaminated samples before analysis
+4. **Batch effects**: Account for sequencing batch in large studies
+5. **Normalization**: Consider GC-content and mappability corrections for precise estimates
+
+**Clinical Applications**
+-------------------------
+
+mtDNA copy number has been used as a biomarker in:
+
+- Alzheimer's disease research (PMID: 39444005)
+- Parkinson's disease studies (PMID: 40873892)
+- Cardiovascular disease risk prediction (PMID: 37804200)
+- Asthma severity assessment (PMID: 38106101)
+- Psychiatric condition studies (PMID: 40517524)
+- Dementia risk assessment (PMID: 39313624)
+
+**Workflow Integration**
+------------------------
+
+Recommended pipeline::
+
+    FASTQ → BWA-MEM → BAM → fastMitoCalc → mtDNA-CN Report
+                        ↓
+                   Mutserve → VCF → Haplocheck (contamination QC)
+                                ↓
+                           Haplogrep3 (haplogroup classification)
+
+**Citation**
+------------
+
+If you use fastMitoCalc in your research, please cite:
+
+Qian Y, Butler TJ, Opsahl-Ong K, Giroux NS, Sidore C, Nagaraja R, Cucca F, 
+Ferrucci L, Abecasis GR, Schlessinger D, Ding J. fastMitoCalc: an ultra-fast 
+program to estimate mitochondrial DNA copy number from whole-genome sequences. 
+Bioinformatics. 2017 May 1;33(9):1399-1401. doi:10.1093/bioinformatics/btx167
+
+**Links**
+---------
+
+- GitHub: https://github.com/qian0001/fastMitoCalc
+- Original mitoAnalyzer: https://lgsun.irp.nia.nih.gov/hsgu/software/mitoanalyzer/index.html
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1093/bioinformatics/btx167</citation>
+    </citations>
+</tool>

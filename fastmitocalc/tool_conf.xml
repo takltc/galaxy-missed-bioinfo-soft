@@ -1,0 +1,6 @@
+<toolbox monitor="true">
+    <section id="mitochondrial_analysis" name="Mitochondrial DNA Analysis">
+        <label id="fastmitocalc_label" text="fastMitoCalc - mtDNA Copy Number Estimation"/>
+        <tool file="fastmitocalc/fastmitocalc.xml"/>
+    </section>
+</toolbox>

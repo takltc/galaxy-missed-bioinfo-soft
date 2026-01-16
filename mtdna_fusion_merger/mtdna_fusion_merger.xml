@@ -1,0 +1,140 @@
+<tool id="mtdna_fusion_merger" name="mtDNA Fusion Merger" version="1.0.0+galaxy0" profile="21.05">
+    <description>Merge Mutserve and Mutect2 mtDNA variant calls using fusion mode</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.0.0</token>
+        <token name="@GALAXY_VERSION@">galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="3.11">python</requirement>
+        <requirement type="package" version="1.19">bcftools</requirement>
+        <container type="docker">omniverse/mtdna-fusion-merger:1.0.0</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        python '$__tool_directory__/docker/mtdna_fusion_merger.py'
+            --mutserve-vcf '$mutserve_vcf'
+            --mutect2-vcf '$mutect2_vcf'
+            --output output.vcf
+            --report fusion_report.json
+            --mode '$mode'
+        
+        #if str($compress_output) == 'true':
+            && bgzip -c output.vcf > output.vcf.gz
+            && tabix -p vcf output.vcf.gz
+        #end if
+    ]]></command>
+    <inputs>
+        <param name="mutserve_vcf" type="data" format="vcf,vcf_bgzip" label="Mutserve VCF" help="VCF file from Mutserve variant calling. Contains SNV calls with heteroplasmy information."/>
+        <param name="mutect2_vcf" type="data" format="vcf,vcf_bgzip" label="Mutect2 VCF" help="VCF file from GATK Mutect2 mitochondria mode. Contains SNV and INDEL calls."/>
+        <param name="mode" type="select" label="Merge mode" help="Fusion mode (recommended) uses SNVs from Mutserve and INDELs from Mutect2 based on mtDNA-Server 2 best practices.">
+            <option value="fusion" selected="true">Fusion (SNVs from Mutserve, INDELs from Mutect2) - Recommended</option>
+            <option value="intersection">Intersection (only variants called by both tools)</option>
+            <option value="union">Union (all variants from both tools)</option>
+        </param>
+        <param name="compress_output" type="boolean" truevalue="true" falsevalue="false" checked="true" label="Compress output VCF" help="Output bgzip-compressed VCF with tabix index."/>
+    </inputs>
+    <outputs>
+        <data name="vcf_output" format="vcf" from_work_dir="output.vcf" label="${tool.name} on ${on_string}: VCF">
+            <filter>not compress_output</filter>
+        </data>
+        <data name="vcf_output_gz" format="vcf_bgzip" from_work_dir="output.vcf.gz" label="${tool.name} on ${on_string}: VCF">
+            <filter>compress_output</filter>
+        </data>
+        <data name="fusion_report" format="json" from_work_dir="fusion_report.json" label="${tool.name} on ${on_string}: Fusion Report"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="mutserve_vcf" value="test_mutserve.vcf"/>
+            <param name="mutect2_vcf" value="test_mutect2.vcf"/>
+            <param name="mode" value="fusion"/>
+            <param name="compress_output" value="false"/>
+            <output name="vcf_output" file="expected_fusion.vcf" compare="sim_size"/>
+            <output name="fusion_report" file="expected_report.json" compare="sim_size"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**mtDNA Fusion Merger - Ensemble Variant Consensus Tool**
+=========================================================
+
+This tool implements the fusion mode from mtDNA-Server 2 (PMID:38709886) to merge 
+variant calls from Mutserve and GATK Mutect2 for mitochondrial DNA analysis.
+
+**Why Fusion Mode?**
+--------------------
+
+According to benchmark studies (PMID:35350246), heteroplasmic variant calling 
+concordance between different tools is only 2.8-3.6%. Simple intersection would 
+discard the vast majority of true heteroplasmic variants.
+
+The fusion mode strategy, validated in mtDNA-Server 2 (PMID:38709886):
+
+- **SNVs**: Prioritize Mutserve calls (higher accuracy for SNVs)
+- **INDELs**: Prioritize Mutect2 calls (Mutserve has limited INDEL support)
+- **Position conflicts**: INDEL calls take priority over SNV calls at same position
+
+**Merge Modes**
+---------------
+
+1. **Fusion (Recommended)**: 
+   - SNVs from Mutserve, INDELs from Mutect2
+   - Position conflicts resolved by INDEL priority
+   - Confidence scores assigned based on caller agreement
+
+2. **Intersection**: 
+   - Only variants called by both tools
+   - Highest specificity but may miss true heteroplasmic variants
+   - NOT recommended due to low concordance between tools
+
+3. **Union**: 
+   - All variants from both tools
+   - Highest sensitivity but may include false positives
+
+**Confidence Scoring**
+----------------------
+
+Each variant receives a confidence score:
+
+- 1.0: Called by both Mutserve and Mutect2
+- 0.85: SNV from Mutserve only
+- 0.80: INDEL from Mutect2 only
+- 0.70: Other Mutserve-only calls
+- 0.60: Other Mutect2-only calls
+
+**Inputs**
+----------
+
+- **Mutserve VCF**: Output from Mutserve Call tool
+- **Mutect2 VCF**: Output from GATK Mutect2 in mitochondria mode
+
+**Outputs**
+-----------
+
+1. **Merged VCF**: Combined variant calls with fusion annotations
+   - FUSION_SOURCE: Indicates which caller the variant came from
+   - FUSION_CONFIDENCE: Confidence score (0-1)
+   - BOTH_CALLERS: Flag if variant was called by both tools
+
+2. **Fusion Report**: JSON file with merge statistics
+
+**Best Practices**
+------------------
+
+1. Run Mutserve with ``--level 0.01`` (1% heteroplasmy threshold)
+2. Run Mutect2 in ``--mitochondria-mode``
+3. Use fusion mode for best balance of sensitivity and specificity
+4. Review variants with FUSION_CONFIDENCE < 0.8 more carefully
+
+**References**
+--------------
+
+- Weissensteiner H, et al. mtDNA-Server 2: advancing mitochondrial DNA analysis 
+  through highly parallelized data processing and interactive analytics. 
+  Nucleic Acids Res. 2024;52:W102-W107. PMID:38709886
+
+- Ip EKK, et al. Benchmarking mitochondrial DNA variant callers for clinical 
+  application. Front Genet. 2022;13:835570. PMID:35350246
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1093/nar/gkae296</citation>
+        <citation type="doi">10.3389/fgene.2022.835570</citation>
+    </citations>
+</tool>

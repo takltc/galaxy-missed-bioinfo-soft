@@ -1,0 +1,70 @@
+<tool id="mitoreport_download" name="MitoReport Download" version="1.2.3+galaxy0" profile="21.05">
+    <description>Download MitoMap annotations for MitoReport</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.2.3</token>
+        <token name="@GALAXY_VERSION@">galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">mitoreport</requirement>
+        <container type="docker">omniverse/mitoreport:1.2.3</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        java -Xmx4g -jar /opt/mitoreport/mitoreport.jar mito-map-download
+            --output '$mitomap_annotations'
+    ]]></command>
+    <inputs>
+    </inputs>
+    <outputs>
+        <data name="mitomap_annotations" format="json" label="MitoMap Annotations (${tool.name})"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <output name="mitomap_annotations" file="mito_map_annotations.json" compare="sim_size"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**MitoReport Download - MitoMap Annotations**
+==============================================
+
+This tool downloads the latest MitoMap annotations required for MitoReport analysis.
+
+**What is MitoMap?**
+--------------------
+
+MitoMap (https://mitomap.org) is a curated database of human mitochondrial DNA 
+variation, containing:
+
+- Reported disease-associated variants
+- Polymorphic variants and haplogroup markers  
+- tRNA and rRNA gene information
+- Control region variants
+- Large-scale deletions and duplications
+
+**Usage**
+---------
+
+Run this tool to download the latest MitoMap annotations before running MitoReport.
+The output JSON file should be provided to the MitoReport tool as the 
+"MitoMap annotations" input.
+
+**Note**
+--------
+
+This tool requires internet access to download annotations from MitoMap.
+The download may take a few minutes depending on network speed.
+
+**Output**
+----------
+
+A JSON file containing structured MitoMap annotations suitable for MitoReport.
+
+**Links**
+---------
+
+- MitoMap: https://mitomap.org/MITOMAP
+- MitoReport: https://github.com/bioinfomethods/mitoreport
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1093/nar/gky1024</citation>
+    </citations>
+</tool>

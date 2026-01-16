@@ -1,0 +1,166 @@
+<tool id="mtoolbox_annotate" name="MToolBox Annotate" version="1.2.1+galaxy0" profile="21.05">
+    <description>Annotate mtDNA variants with pathogenicity scores and functional information</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.2.1</token>
+        <token name="@GALAXY_VERSION@">galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="3.11">python</requirement>
+        <requirement type="package" version="0.22.0">pysam</requirement>
+        <container type="docker">omniverse/mtoolbox-annotate:1.2.1</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        python '$__tool_directory__/docker/mtoolbox_annotate.py'
+            --input-vcf '$input_vcf'
+            --output-vcf annotated.vcf
+            --output-json annotation_report.json
+            --output-html annotation_report.html
+            --reference '$reference'
+            --max-frequency '$max_frequency'
+            --nomenclature '$nomenclature'
+            #if str($databases.mitomap) == 'true':
+                --include-mitomap
+            #end if
+            #if str($databases.hmtdb) == 'true':
+                --include-hmtdb
+            #end if
+            #if str($databases.clinvar) == 'true':
+                --include-clinvar
+            #end if
+            #if str($databases.gnomad_mtdna) == 'true':
+                --include-gnomad-mtdna
+            #end if
+            #if $haplogroup:
+                --haplogroup '$haplogroup'
+            #end if
+            #if str($apply_acmg) == 'true':
+                --apply-acmg-criteria
+            #end if
+        #if str($compress_output) == 'true':
+            && bgzip -c annotated.vcf > annotated.vcf.gz
+            && tabix -p vcf annotated.vcf.gz
+        #end if
+    ]]></command>
+    <inputs>
+        <param name="input_vcf" type="data" format="vcf,vcf_bgzip" label="Input VCF" 
+               help="VCF file containing mtDNA variants to annotate. Should be aligned to rCRS (NC_012920.1)."/>
+        <param name="reference" type="select" label="Reference genome">
+            <option value="rCRS" selected="true">rCRS (NC_012920.1) - Revised Cambridge Reference Sequence</option>
+            <option value="RSRS">RSRS - Reconstructed Sapiens Reference Sequence</option>
+        </param>
+        <section name="databases" title="Annotation databases" expanded="true">
+            <param name="mitomap" type="boolean" truevalue="true" falsevalue="false" checked="true" 
+                   label="Include MITOMAP annotations"/>
+            <param name="hmtdb" type="boolean" truevalue="true" falsevalue="false" checked="true" 
+                   label="Include HmtDB annotations"/>
+            <param name="clinvar" type="boolean" truevalue="true" falsevalue="false" checked="true" 
+                   label="Include ClinVar annotations"/>
+            <param name="gnomad_mtdna" type="boolean" truevalue="true" falsevalue="false" checked="true" 
+                   label="Include gnomAD-mtDNA frequencies (PMID:35074858)"/>
+        </section>
+        <param name="max_frequency" type="float" value="0.01" min="0" max="1" 
+               label="Maximum population frequency"/>
+        <param name="haplogroup" type="text" value="" optional="true" 
+               label="Haplogroup context (optional)"/>
+        <param name="apply_acmg" type="boolean" truevalue="true" falsevalue="false" checked="true" 
+               label="Apply ACMG/AMP mtDNA criteria (PMID:32906214)"/>
+        <param name="nomenclature" type="select" label="Output nomenclature">
+            <option value="rCRS" selected="true">rCRS position-based</option>
+            <option value="HGVS">HGVS format</option>
+            <option value="both">Both formats</option>
+        </param>
+        <param name="compress_output" type="boolean" truevalue="true" falsevalue="false" checked="true" 
+               label="Compress output VCF"/>
+    </inputs>
+    <outputs>
+        <data name="vcf_output" format="vcf" from_work_dir="annotated.vcf" 
+              label="${tool.name} on ${on_string}: Annotated VCF">
+            <filter>not compress_output</filter>
+        </data>
+        <data name="vcf_output_gz" format="vcf_bgzip" from_work_dir="annotated.vcf.gz" 
+              label="${tool.name} on ${on_string}: Annotated VCF">
+            <filter>compress_output</filter>
+        </data>
+        <data name="annotation_report_json" format="json" from_work_dir="annotation_report.json" 
+              label="${tool.name} on ${on_string}: Annotation Report (JSON)"/>
+        <data name="annotation_report_html" format="html" from_work_dir="annotation_report.html" 
+              label="${tool.name} on ${on_string}: Clinical Report (HTML)"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="3">
+            <param name="input_vcf" value="test_mtdna.vcf"/>
+            <param name="reference" value="rCRS"/>
+            <section name="databases">
+                <param name="mitomap" value="true"/>
+                <param name="hmtdb" value="true"/>
+                <param name="clinvar" value="true"/>
+                <param name="gnomad_mtdna" value="true"/>
+            </section>
+            <param name="max_frequency" value="0.01"/>
+            <param name="apply_acmg" value="true"/>
+            <param name="nomenclature" value="rCRS"/>
+            <param name="compress_output" value="false"/>
+            <output name="vcf_output" file="expected_annotated.vcf" compare="sim_size"/>
+            <output name="annotation_report_json" file="expected_report.json" compare="sim_size"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**MToolBox Annotate - mtDNA Variant Annotation Tool**
+=====================================================
+
+This tool provides comprehensive annotation for mitochondrial DNA variants using 
+the MToolBox framework (PMID:25028726), integrating multiple databases for 
+pathogenicity assessment and clinical interpretation.
+
+**Why MToolBox?**
+-----------------
+
+- **Validated in Solve-RD project** (PMID:40306282): Used for rare disease diagnosis
+- **Benchmark F1 = 0.897** (PMID:37704952): Highest accuracy in systematic comparison
+- **Integrates gold-standard databases**: MITOMAP, HmtDB, ClinVar, gnomAD-mtDNA
+- **GPL-3.0 open source**: Fully transparent and locally deployable
+
+**Annotation Databases**
+------------------------
+
+1. **MITOMAP** (https://www.mitomap.org) - Expert-curated disease associations
+2. **HmtDB** (https://www.hmtdb.uniba.it) - Population variability from 30,860+ genomes
+3. **ClinVar** - Clinical significance classifications
+4. **gnomAD-mtDNA** (PMID:35074858) - Population frequencies from 56,434 individuals
+
+**ACMG/AMP mtDNA Classification**
+---------------------------------
+
+Applies mtDNA-specific ACMG criteria (PMID:32906214):
+- PM1: Located in critical functional domain
+- PM2: Absent from gnomAD-mtDNA (<0.0001)
+- PP3: Computational evidence (conservation)
+- PS3: Functional studies (from MITOMAP)
+
+**Outputs**
+-----------
+
+1. **Annotated VCF**: Input variants with annotation fields added
+2. **JSON Report**: Machine-readable annotation summary
+3. **HTML Report**: Clinical-ready report with visualizations
+
+**References**
+--------------
+
+- Calabrese C, et al. MToolBox: a highly automated pipeline for heteroplasmy 
+  annotation and prioritization analysis of human mitochondrial variants in 
+  high-throughput sequencing. Bioinformatics. 2014;30(21):3115-3117. PMID:25028726
+
+- McCormick EM, et al. Specifications of the ACMG/AMP standards and guidelines 
+  for mitochondrial DNA variant interpretation. Hum Mutat. 2020;41(12):2028-2057. 
+  PMID:32906214
+
+- Laricchia KM, et al. Mitochondrial DNA variation across 56,434 individuals in 
+  gnomAD. Genome Res. 2022;32(3):569-582. PMID:35074858
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1093/bioinformatics/btu483</citation>
+        <citation type="doi">10.1002/humu.24107</citation>
+        <citation type="doi">10.1101/gr.276013.121</citation>
+    </citations>
+</tool>

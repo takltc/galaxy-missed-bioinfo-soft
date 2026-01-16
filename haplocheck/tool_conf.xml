@@ -1,0 +1,6 @@
+<toolbox monitor="true">
+    <section id="mitochondrial_analysis" name="Mitochondrial DNA Analysis">
+        <label id="haplocheck_label" text="Haplocheck - Contamination Detection"/>
+        <tool file="haplocheck/haplocheck.xml"/>
+    </section>
+</toolbox>

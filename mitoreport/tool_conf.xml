@@ -1,0 +1,6 @@
+<toolbox monitor="true">
+    <section id="mitoreport" name="MitoReport">
+        <tool file="mitoreport/mitoreport.xml" />
+        <tool file="mitoreport/mitoreport_download.xml" />
+    </section>
+</toolbox>

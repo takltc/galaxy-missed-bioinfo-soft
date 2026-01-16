@@ -18,3 +18,5 @@ coverage.xml
 .git
 .DS_Store
 tests/output/
+AGENTS.md
+CLAUDE.md

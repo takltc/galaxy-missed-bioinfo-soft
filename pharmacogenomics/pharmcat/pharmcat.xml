@@ -1,0 +1,329 @@
+<tool id="pharmcat" name="PharmCAT" version="2.13.0+galaxy0" profile="21.05">
+    <description>Pharmacogenomics Clinical Annotation Tool for star allele calling and drug recommendations</description>
+    <macros>
+        <token name="@TOOL_VERSION@">2.13.0</token>
+        <token name="@GALAXY_VERSION@">galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">pharmcat</requirement>
+        <container type="docker">omniverse/pharmcat:2.13.0</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        ## 创建输入文件符号链接
+        ln -s '$input_vcf' input.vcf &&
+        
+        mkdir -p output &&
+        
+        ## 根据运行模式选择执行方式
+        #if str($function_select.function) == "all"
+            ## 运行完整PharmCAT流程（VCF预处理 + 命名等位基因匹配 + 表型分析 + 报告生成）
+            java -jar /opt/pharmcat/pharmcat.jar
+                -vcf input.vcf
+                -o output
+                -bf result
+                #if $function_select.outside_call
+                    -po '$function_select.outside_call'
+                #end if
+                #if $function_select.json
+                    -reporterJson
+                #end if
+                #if $function_select.phenojson
+                    ## 保留中间文件以获取表型JSON
+                #else
+                    -del
+                #end if
+                #if str($function_select.research_mode.mode) == "combinations"
+                    -research combinations
+                #elif str($function_select.research_mode.mode) == "cyp2d6"
+                    -research cyp2d6
+                #elif str($function_select.research_mode.mode) == "both"
+                    -research combinations,cyp2d6
+                #end if
+        #elif str($function_select.function) == "preprocessor"
+            ## 仅运行VCF预处理器
+            python3 /opt/pharmcat/preprocessor/pharmcat_vcf_preprocessor.py
+                -vcf input.vcf
+                -o output
+                -bf result
+                #if $function_select.missing_to_ref
+                    -0
+                #end if
+        #elif str($function_select.function) == "matcher"
+            ## 仅运行命名等位基因匹配器
+            java -jar /opt/pharmcat/pharmcat.jar
+                -matcher
+                -vcf input.vcf
+                -o output
+                -bf result
+                #if $function_select.all_results
+                    -ma
+                #end if
+                -matcherHtml
+        #elif str($function_select.function) == "phenotyper"
+            ## 先运行匹配器获取JSON，再运行表型分析器
+            java -jar /opt/pharmcat/pharmcat.jar
+                -matcher
+                -vcf input.vcf
+                -o output
+                -bf result &&
+            java -jar /opt/pharmcat/pharmcat.jar
+                -phenotyper
+                -pi output/result.match.json
+                -o output
+                -bf result
+                #if $function_select.outside_call
+                    -po '$function_select.outside_call'
+                #end if
+        #end if
+        
+        ## 重命名输出文件
+        #if str($function_select.function) == "all"
+            && mv output/result.report.html '$all_out'
+            #if $function_select.phenojson
+                && mv output/result.phenotype.json '$all_pheno'
+            #end if
+            #if $function_select.json
+                && mv output/result.report.json '$all_json'
+            #end if
+        #elif str($function_select.function) == "preprocessor"
+            && mv output/result.preprocessed.vcf '$preprocessed_vcf'
+        #elif str($function_select.function) == "matcher"
+            && mv output/result.match.json '$matcher_json'
+            && mv output/result.match.html '$matcher_html'
+        #elif str($function_select.function) == "phenotyper"
+            && mv output/result.phenotype.json '$phenotyper_json'
+        #end if
+    ]]></command>
+    <inputs>
+        <param name="input_vcf" type="data" format="vcf,vcf_bgzip" label="Input VCF file" help="VCF文件必须符合PharmCAT要求：GRCh38参考基因组，单样本，包含所有PGx位点。参考：PMID:36350094"/>
+        
+        <conditional name="function_select">
+            <param name="function" type="select" label="PharmCAT运行模式" help="选择PharmCAT的运行模式。完整流程是推荐选项。">
+                <option value="all" selected="true">完整流程 (Full Pipeline) - 从VCF到临床报告</option>
+                <option value="preprocessor">仅VCF预处理器 (Preprocessor) - 准备VCF文件</option>
+                <option value="matcher">仅命名等位基因匹配器 (Named Allele Matcher) - 获取基因型</option>
+                <option value="phenotyper">仅表型分析器 (Phenotyper) - 获取表型和功能</option>
+            </param>
+            
+            <when value="all">
+                <param name="outside_call" type="data" format="tabular,tsv" optional="true" label="外部基因型/表型数据 (可选)" help="用于CYP2D6等无法从VCF调用的基因。格式：每行一个基因-基因型对，制表符分隔。"/>
+                
+                <param name="json" type="boolean" truevalue="true" falsevalue="false" checked="true" label="输出JSON格式报告" help="生成机器可读的JSON报告，便于下游工具处理"/>
+                
+                <param name="phenojson" type="boolean" truevalue="true" falsevalue="false" checked="true" label="输出表型JSON" help="生成包含基因型、表型和活性评分的JSON文件"/>
+                
+                <conditional name="research_mode">
+                    <param name="mode" type="select" label="研究模式 (可选)" help="启用实验性功能，仅用于研究目的">
+                        <option value="none" selected="true">标准模式 (临床推荐)</option>
+                        <option value="combinations">组合等位基因检测 - 检测新型PGx变异组合</option>
+                        <option value="cyp2d6">CYP2D6 SNP/INDEL调用 - 仅基于VCF的CYP2D6调用</option>
+                        <option value="both">两者都启用</option>
+                    </param>
+                    <when value="none"/>
+                    <when value="combinations"/>
+                    <when value="cyp2d6"/>
+                    <when value="both"/>
+                </conditional>
+            </when>
+            
+            <when value="preprocessor">
+                <param name="missing_to_ref" type="boolean" truevalue="true" falsevalue="false" checked="false" label="将缺失位点设为参考" help="仅在确定缺失位点确实是参考等位基因时使用。警告：可能导致错误结果"/>
+            </when>
+            
+            <when value="matcher">
+                <param name="all_results" type="boolean" truevalue="true" falsevalue="false" checked="false" label="返回所有可能的基因型" help="返回所有可能的PGx调用，而不仅仅是最可能的"/>
+            </when>
+            
+            <when value="phenotyper">
+                <param name="outside_call" type="data" format="tabular,tsv" optional="true" label="外部基因型/表型数据 (可选)" help="用于CYP2D6等无法从VCF调用的基因"/>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <!-- 完整流程输出 -->
+        <data name="all_out" format="html" label="${tool.name} on ${on_string}: Clinical Report">
+            <filter>function_select['function'] == 'all'</filter>
+        </data>
+        <data name="all_pheno" format="json" label="${tool.name} on ${on_string}: Phenotype JSON">
+            <filter>function_select['function'] == 'all' and function_select['phenojson']</filter>
+        </data>
+        <data name="all_json" format="json" label="${tool.name} on ${on_string}: Report JSON">
+            <filter>function_select['function'] == 'all' and function_select['json']</filter>
+        </data>
+        
+        <!-- 预处理器输出 -->
+        <data name="preprocessed_vcf" format="vcf" label="${tool.name} on ${on_string}: Preprocessed VCF">
+            <filter>function_select['function'] == 'preprocessor'</filter>
+        </data>
+        
+        <!-- 匹配器输出 -->
+        <data name="matcher_json" format="json" label="${tool.name} on ${on_string}: Matcher JSON">
+            <filter>function_select['function'] == 'matcher'</filter>
+        </data>
+        <data name="matcher_html" format="html" label="${tool.name} on ${on_string}: Matcher HTML">
+            <filter>function_select['function'] == 'matcher'</filter>
+        </data>
+        
+        <!-- 表型分析器输出 -->
+        <data name="phenotyper_json" format="json" label="${tool.name} on ${on_string}: Phenotyper JSON">
+            <filter>function_select['function'] == 'phenotyper'</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="input_vcf" value="test_pgx.vcf"/>
+            <param name="function" value="all"/>
+            <param name="json" value="false"/>
+            <param name="phenojson" value="true"/>
+            <output name="all_out" file="expected_report.html" compare="sim_size"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**PharmCAT - Pharmacogenomics Clinical Annotation Tool**
+=========================================================
+
+PharmCAT是由PharmGKB团队开发的药物基因组学临床注释工具，用于从VCF文件中提取PGx相关变异，
+确定基因型/双倍型，推断相应表型，并生成包含CPIC和DPWG临床用药建议的报告。
+
+**概述**
+--------
+
+PharmCAT是CPIC（临床药物遗传学实施联盟）官方推荐的PGx注释工具，提供：
+
+- 从VCF文件自动提取药物基因组学变异
+- 星等位基因（Star Allele）识别和双倍型调用
+- 代谢表型推断（超快代谢、正常代谢、中间代谢、慢代谢）
+- CPIC和DPWG临床用药建议
+- 支持34个药物基因和164+药物-基因对
+
+**支持的基因（21个CPIC基因）**
+------------------------------
+
+高优先级（FDA表）：
+
+- **CYP2D6**: 可待因、曲马多、抗抑郁药、抗精神病药（~25%处方药代谢）
+- **CYP2C19**: 氯吡格雷、PPIs、伏立康唑、SSRIs
+- **CYP2C9/VKORC1**: 华法林剂量
+- **DPYD**: 氟尿嘧啶类（5-FU、卡培他滨）
+- **TPMT/NUDT15**: 硫嘌呤类（硫唑嘌呤、巯嘌呤）
+- **SLCO1B1**: 辛伐他汀肌病风险
+- **HLA-B**: 卡马西平、阿巴卡韦过敏
+- **G6PD**: 拉布立酶、某些抗疟药
+
+**VCF要求**
+-----------
+
+1. **参考基因组**: 必须是GRCh38/hg38
+2. **样本数**: 单样本VCF（多样本需预处理）
+3. **变异表示**: 左对齐、简约表示格式
+4. **染色体命名**: chr## 格式（如 chr1, chr22）
+5. **位点覆盖**: 应包含所有PGx等位基因定义位点
+
+**运行模式**
+------------
+
+| 模式 | 描述 | 输出 |
+|------|------|------|
+| 完整流程 | VCF → 报告 | HTML报告 + JSON |
+| VCF预处理器 | 标准化VCF | 预处理后VCF |
+| 命名等位基因匹配器 | 调用基因型 | 基因型JSON |
+| 表型分析器 | 推断表型 | 表型JSON |
+
+**研究模式功能**
+----------------
+
+- **组合等位基因**: 检测PharmVar中未编录的新型PGx变异组合
+- **CYP2D6 SNP/INDEL**: 仅使用VCF中的SNP和INDEL调用CYP2D6（不推荐临床使用）
+
+**最佳实践（基于文献）**
+------------------------
+
+根据PMID:36350094推荐：
+
+1. **始终运行预处理器**: 确保VCF符合PharmCAT要求
+2. **CYP2D6**: 使用外部工具（如Cyrius、Stargazer）检测CNV，通过outside_call导入
+3. **质量控制**: PharmCAT不检查QUAL和FILTER列，用户需自行过滤
+4. **未分相数据**: 会返回所有可能的双倍型，选择最长匹配
+
+**工作流集成**
+--------------
+
+推荐管线::
+
+    VCF Input (GRCh38)
+        │
+        ├── PharmCAT VCF Preprocessor
+        │         │
+        │         ▼
+        ├── PharmCAT Named Allele Matcher
+        │         │
+        │         ▼
+        ├── PharmCAT Phenotyper ←── Outside Calls (CYP2D6 from Cyrius)
+        │         │
+        │         ▼
+        └── PharmCAT Reporter
+                  │
+                  ▼
+        Clinical Report (HTML/JSON)
+
+**外部调用格式**
+----------------
+
+对于CYP2D6等需要外部工具的基因，准备TSV文件：
+
+::
+
+    CYP2D6    *1/*4
+    MT-RNR1   1555A>G
+    HLA-B     *57:01 positive
+
+**输出说明**
+------------
+
+HTML报告包含：
+
+1. **基因型摘要表**: 所有检测基因的双倍型、功能和表型
+2. **用药建议**: CPIC和DPWG指南的药物特异性建议
+3. **等位基因匹配详情**: 每个基因的变异位点和匹配结果
+4. **免责声明**: 临床使用注意事项
+
+JSON输出包含：
+
+- 完整的基因型和表型数据
+- 活性评分（Activity Score）
+- 所有用药建议及证据等级
+- 缺失位点信息
+
+**局限性**
+----------
+
+- 不能检测复杂结构变异（如CYP2D6基因缺失/重复）
+- 不能检测新型未知变异
+- 不进行VCF质量控制
+- 需要外部工具辅助CYP2D6完整调用
+
+**引用**
+--------
+
+使用PharmCAT请引用：
+
+1. Li B, et al. How to Run the Pharmacogenomics Clinical Annotation Tool (PharmCAT).
+   Clin Pharmacol Ther. 2023;113(5):1000-1012. PMID: 36350094
+
+2. Sangkuhl K, et al. PharmCAT: A pharmacogenomics clinical annotation tool.
+   Clin Pharmacol Ther. 2020;107(1):203-210. PMID: 31306493
+
+**链接**
+--------
+
+- PharmCAT官网: https://pharmcat.org/
+- GitHub: https://github.com/PharmGKB/PharmCAT
+- PharmGKB: https://www.pharmgkb.org/
+- CPIC: https://cpicpgx.org/
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1002/cpt.2790</citation>
+        <citation type="doi">10.1002/cpt.1568</citation>
+        <citation type="doi">10.1038/clpt.2010.279</citation>
+    </citations>
+</tool>

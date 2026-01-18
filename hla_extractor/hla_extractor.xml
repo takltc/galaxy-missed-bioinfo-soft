@@ -1,0 +1,159 @@
+<tool id="hla_extractor" name="HLA Region Extractor" version="1.0.0+galaxy0" profile="21.05">
+    <description>Extract reads from HLA region (chr6:28-33Mb)</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.0.0</token>
+        <token name="@VERSION_SUFFIX@">+galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="1.21">samtools</requirement>
+        <container type="docker">hla-extractor:1.0.0</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+#if $input_data.is_of_type('bam')
+    ln -s '$input_data' input.bam &&
+    ln -s '$input_data.metadata.bam_index' input.bam.bai &&
+    #set $input_file = 'input.bam'
+    #set $is_cram = False
+#else
+    ln -s '$input_data' input.cram &&
+    ln -s '$input_data.metadata.cram_index' input.cram.crai &&
+    #set $input_file = 'input.cram'
+    #set $is_cram = True
+#end if
+
+#if $is_cram and $reference
+    ln -s '$reference' reference.fa &&
+    ln -s '$reference.metadata.fasta_index' reference.fa.fai &&
+    #set $ref_opt = '-T reference.fa'
+#else
+    #set $ref_opt = ''
+#end if
+
+## Extract HLA region reads
+samtools view -b $ref_opt
+    '$input_file'
+    '$region'
+    > hla_region.bam
+
+&&
+
+## Optionally include unmapped reads
+#if $include_unmapped
+    samtools view -b -f 4 $ref_opt '$input_file' > unmapped.bam &&
+    samtools merge -f combined.bam hla_region.bam unmapped.bam &&
+    mv combined.bam hla_region.bam &&
+    rm unmapped.bam &&
+#end if
+
+## Sort and convert to FASTQ
+samtools sort -n hla_region.bam -o hla_sorted.bam &&
+
+#if $output_format.format_selector == "fastq_paired"
+    samtools fastq -1 '$output_r1' -2 '$output_r2' -0 /dev/null -s /dev/null -n hla_sorted.bam
+#elif $output_format.format_selector == "fastq_single"
+    samtools fastq hla_sorted.bam > '$output_fastq'
+#else
+    samtools sort hla_region.bam -o '$output_bam' &&
+    samtools index '$output_bam'
+#end if
+    ]]></command>
+    <inputs>
+        <param name="input_data" type="data" format="bam,cram" 
+               label="Aligned reads (BAM/CRAM)" 
+               help="Aligned sequencing reads. Must be sorted and indexed."/>
+        
+        <param name="reference" type="data" format="fasta,fasta.gz" optional="true"
+               label="Reference genome (required for CRAM)" 
+               help="Reference genome FASTA file. Required if input is CRAM format."/>
+        
+        <param name="region" type="text" value="chr6:28477797-33448354"
+               label="HLA region coordinates"
+               help="Genomic coordinates of HLA region. Default: chr6:28477797-33448354 (GRCh38 MHC extended region)"/>
+        
+        <param name="include_unmapped" type="boolean" truevalue="yes" falsevalue="no" checked="true"
+               label="Include unmapped reads"
+               help="Include unmapped reads which may contain HLA sequences missed during alignment"/>
+        
+        <conditional name="output_format">
+            <param name="format_selector" type="select" label="Output format">
+                <option value="fastq_paired" selected="true">Paired-end FASTQ</option>
+                <option value="fastq_single">Single-end FASTQ</option>
+                <option value="bam">BAM</option>
+            </param>
+            <when value="fastq_paired"/>
+            <when value="fastq_single"/>
+            <when value="bam"/>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="output_r1" format="fastqsanger" label="${tool.name} on ${on_string}: R1">
+            <filter>output_format['format_selector'] == 'fastq_paired'</filter>
+        </data>
+        <data name="output_r2" format="fastqsanger" label="${tool.name} on ${on_string}: R2">
+            <filter>output_format['format_selector'] == 'fastq_paired'</filter>
+        </data>
+        <data name="output_fastq" format="fastqsanger" label="${tool.name} on ${on_string}: FASTQ">
+            <filter>output_format['format_selector'] == 'fastq_single'</filter>
+        </data>
+        <data name="output_bam" format="bam" label="${tool.name} on ${on_string}: BAM">
+            <filter>output_format['format_selector'] == 'bam'</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="input_data" value="test.bam"/>
+            <param name="region" value="chr6:28477797-33448354"/>
+            <conditional name="output_format">
+                <param name="format_selector" value="fastq_paired"/>
+            </conditional>
+            <output name="output_r1" file="expected_R1.fastq" compare="sim_size" delta="1000"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**HLA Region Extractor**
+
+从全基因组比对文件中提取 HLA 区域的 reads，用于下游 HLA 分型分析。
+
+**功能**
+
+- 从 BAM/CRAM 文件中提取 MHC/HLA 区域的 reads
+- 可选择性包含未比对的 reads（可能包含 HLA 序列）
+- 支持输出为 FASTQ 或 BAM 格式
+
+**HLA 区域坐标 (GRCh38)**
+
+默认区域: chr6:28477797-33448354
+
+这个区域涵盖了整个 MHC 扩展区域，包括:
+- HLA Class I: HLA-A, HLA-B, HLA-C
+- HLA Class II: HLA-DR, HLA-DQ, HLA-DP
+- 其他 MHC 相关基因
+
+**为什么要包含未比对的 reads?**
+
+由于 HLA 区域的高度多态性，一些包含 HLA 序列的 reads 可能无法比对到参考基因组。
+包含这些未比对的 reads 可以提高下游 HLA 分型的准确性。
+
+**输出选项**
+
+1. **Paired-end FASTQ**: 分离的 R1 和 R2 FASTQ 文件，适用于大多数 HLA 分型工具
+2. **Single-end FASTQ**: 合并的单端 FASTQ 文件
+3. **BAM**: 提取的 BAM 文件，保留原始比对信息
+
+**使用建议**
+
+- 对于 HLA-HD 和 OptiType: 使用 Paired-end FASTQ 输出
+- 对于 HLA-LA: 可使用 BAM 输出
+    ]]></help>
+    <citations>
+        <citation type="bibtex">
+@article{samtools,
+  title={Twelve years of SAMtools and BCFtools},
+  author={Danecek, Petr and others},
+  journal={GigaScience},
+  year={2021},
+  doi={10.1093/gigascience/giab008}
+}
+        </citation>
+    </citations>
+</tool>

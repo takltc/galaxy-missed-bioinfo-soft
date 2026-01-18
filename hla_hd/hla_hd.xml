@@ -1,0 +1,202 @@
+<tool id="hla_hd" name="HLA-HD" version="1.7.0+galaxy0" profile="21.05">
+    <description>High-resolution HLA typing from NGS data</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.7.0</token>
+        <token name="@VERSION_SUFFIX@">+galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">hla-hd</requirement>
+        <container type="docker">hla-hd:1.7.0</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+## Prepare input files
+#if $input_type.type_selector == "paired"
+    ln -s '$input_type.reads1' reads_1.fastq &&
+    ln -s '$input_type.reads2' reads_2.fastq &&
+    #set $input_reads = '-f reads_1.fastq reads_2.fastq'
+#else
+    ln -s '$input_type.reads' reads.fastq &&
+    #set $input_reads = '-f reads.fastq'
+#end if
+
+## Create output directory
+mkdir -p output &&
+
+## Run HLA-HD
+hlahd.sh
+    -t \${GALAXY_SLOTS:-4}
+    -m $minimum_read_length
+    $input_reads
+    /opt/hlahd/freq_data
+    /opt/hlahd/HLA_gene.split.txt
+    /opt/hlahd/dictionary
+    sample
+    output
+
+&&
+
+## Collect results
+mv output/sample/result/sample_final.result.txt '$hla_result' &&
+
+#if $output_html
+    mv output/sample/result/sample.html '$hla_report' &&
+#end if
+
+## Generate JSON output for downstream analysis
+python3 << 'EOF'
+import json
+import sys
+
+results = {}
+with open('$hla_result', 'r') as f:
+    for line in f:
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        parts = line.split('\t')
+        if len(parts) >= 2:
+            gene = parts[0].replace('HLA-', '')
+            allele1 = parts[1] if len(parts) > 1 else ''
+            allele2 = parts[2] if len(parts) > 2 else allele1
+            results[gene] = {
+                'allele1': allele1,
+                'allele2': allele2,
+                'tool': 'HLA-HD',
+                'version': '@TOOL_VERSION@'
+            }
+
+output = {
+    'sample': 'sample',
+    'tool': 'HLA-HD',
+    'version': '@TOOL_VERSION@',
+    'typing_results': results
+}
+
+with open('$json_output', 'w') as f:
+    json.dump(output, f, indent=2)
+EOF
+    ]]></command>
+    <inputs>
+        <conditional name="input_type">
+            <param name="type_selector" type="select" label="Input type">
+                <option value="paired" selected="true">Paired-end FASTQ</option>
+                <option value="single">Single-end FASTQ</option>
+            </param>
+            <when value="paired">
+                <param name="reads1" type="data" format="fastq,fastq.gz,fastqsanger,fastqsanger.gz" 
+                       label="Forward reads (R1)" 
+                       help="Forward reads containing HLA region sequences"/>
+                <param name="reads2" type="data" format="fastq,fastq.gz,fastqsanger,fastqsanger.gz" 
+                       label="Reverse reads (R2)" 
+                       help="Reverse reads containing HLA region sequences"/>
+            </when>
+            <when value="single">
+                <param name="reads" type="data" format="fastq,fastq.gz,fastqsanger,fastqsanger.gz" 
+                       label="Single-end reads" 
+                       help="Single-end reads containing HLA region sequences"/>
+            </when>
+        </conditional>
+        
+        <param name="minimum_read_length" type="integer" min="30" max="150" value="50"
+               label="Minimum read length"
+               help="Minimum read length to use for analysis. Default: 50 bp (recommended for Illumina data)"/>
+        
+        <param name="output_html" type="boolean" truevalue="yes" falsevalue="no" checked="true"
+               label="Generate HTML report"
+               help="Generate a visual HTML report of HLA typing results"/>
+    </inputs>
+    <outputs>
+        <data name="hla_result" format="tabular" label="${tool.name} on ${on_string}: HLA Types"/>
+        <data name="json_output" format="json" label="${tool.name} on ${on_string}: JSON Result"/>
+        <data name="hla_report" format="html" label="${tool.name} on ${on_string}: HTML Report">
+            <filter>output_html</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="3">
+            <conditional name="input_type">
+                <param name="type_selector" value="paired"/>
+                <param name="reads1" value="test_R1.fastq"/>
+                <param name="reads2" value="test_R2.fastq"/>
+            </conditional>
+            <param name="minimum_read_length" value="50"/>
+            <output name="hla_result" file="expected_hla.txt" compare="sim_size" delta="100"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**HLA-HD: High-resolution HLA Typing from NGS Data**
+
+HLA-HD (HLA typing from High-quality Dictionary) 是一种用于从 NGS 数据中准确确定 HLA 等位基因的工具，
+能够实现 6-digit (4-field) 高分辨率分型。
+
+**主要特点**
+
+- 支持 WGS、WES 和 RNA-Seq 数据
+- 使用 IPD-IMGT/HLA 数据库进行分型
+- 准确率在多项基准测试中表现最佳（93.9%-94.2%）
+- 支持 HLA Class I 和 Class II 基因分型
+
+**支持的 HLA 基因**
+
+- **Class I**: HLA-A, HLA-B, HLA-C
+- **Class II**: HLA-DRB1, HLA-DQB1, HLA-DPB1, HLA-DQA1, HLA-DPA1, HLA-DRB3/4/5
+
+**输入要求**
+
+1. **FASTQ 文件**: 
+   - 支持 paired-end 或 single-end 格式
+   - 推荐使用提取 HLA 区域后的 reads
+   - 支持 gzip 压缩格式
+
+2. **覆盖度要求**:
+   - 推荐 HLA 区域覆盖度 >= 30x
+   - 更高覆盖度可提高分型准确率
+
+**最佳实践参数**
+
+根据文献 (PMID: 33868290, 35813337):
+
+- **minimum_read_length**: 50 bp (默认)
+  - 适用于 Illumina 短读长数据
+  - 对于 100bp+ 读长可适当增加
+
+- **推荐测序深度**: >= 300x
+  - 在 50x 深度下准确率可达 93.9%
+  - 在 300x 以上深度准确率 > 94%
+
+**输出文件**
+
+1. **HLA Types (TSV)**: 每个 HLA 基因的等位基因调用结果
+   - 列: Gene, Allele1, Allele2, Score
+
+2. **JSON Result**: 结构化的分型结果，便于下游分析
+
+3. **HTML Report**: 可视化分型结果报告
+
+**临床应用**
+
+- 器官移植配型 (肾脏、骨髓)
+- 药物超敏反应风险评估:
+  - HLA-B*57:01 → Abacavir 超敏反应
+  - HLA-B*15:02 → Carbamazepine SJS/TEN
+  - HLA-B*58:01 → Allopurinol SJS/TEN
+- HLA 相关疾病研究
+
+**参考文献**
+
+1. Kawaguchi S, et al. HLA-HD: An accurate HLA typing algorithm for next-generation sequencing data. 
+   Hum Mutat. 2017;38(7):788-797. doi:10.1002/humu.23230 (PMID: 28419628)
+
+2. Liu P, et al. Benchmarking the Human Leukocyte Antigen Typing Performance of Three Assays 
+   and Seven Next-Generation Sequencing-Based Algorithms. Front Immunol. 2021;12:652258.
+   doi:10.3389/fimmu.2021.652258 (PMID: 33868290)
+
+**更多信息**
+
+- 官网: https://w3.genome.med.kyoto-u.ac.jp/HLA-HD/
+- 版本: 1.7.0
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1002/humu.23230</citation>
+    </citations>
+</tool>

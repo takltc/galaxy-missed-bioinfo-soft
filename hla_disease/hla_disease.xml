@@ -1,0 +1,362 @@
+<tool id="hla_disease" name="HLA Disease Association" version="1.0.0+galaxy0" profile="21.05">
+    <description>Analyze HLA-disease associations and drug hypersensitivity risks</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.0.0</token>
+        <token name="@VERSION_SUFFIX@">+galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="3.11">python</requirement>
+        <container type="docker">hla-disease:1.0.0</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+python3 << 'EOF'
+import json
+import sys
+from datetime import datetime
+
+DRUG_HYPERSENSITIVITY = {
+    'B*57:01': {
+        'drug': 'Abacavir',
+        'reaction': 'Hypersensitivity syndrome',
+        'severity': 'severe',
+        'action': 'Contraindicated',
+        'evidence': 'Strong',
+        'pmid': '18256392',
+        'guideline': 'CPIC'
+    },
+    'B*15:02': {
+        'drug': 'Carbamazepine',
+        'reaction': 'Stevens-Johnson syndrome/Toxic epidermal necrolysis (SJS/TEN)',
+        'severity': 'life-threatening',
+        'action': 'Contraindicated in Asian populations',
+        'population': 'Asian (Han Chinese, Thai, Malaysian)',
+        'evidence': 'Strong',
+        'pmid': '15057820',
+        'guideline': 'CPIC'
+    },
+    'B*58:01': {
+        'drug': 'Allopurinol',
+        'reaction': 'Stevens-Johnson syndrome/Toxic epidermal necrolysis (SJS/TEN)',
+        'severity': 'life-threatening',
+        'action': 'Contraindicated',
+        'population': 'Asian, European',
+        'evidence': 'Strong',
+        'pmid': '15890573',
+        'guideline': 'CPIC'
+    },
+    'A*31:01': {
+        'drug': 'Carbamazepine',
+        'reaction': 'Drug reaction with eosinophilia and systemic symptoms (DRESS)',
+        'severity': 'severe',
+        'action': 'Consider alternative',
+        'population': 'European, Japanese',
+        'evidence': 'Moderate',
+        'pmid': '21204891',
+        'guideline': 'CPIC'
+    },
+    'B*15:11': {
+        'drug': 'Carbamazepine',
+        'reaction': 'SJS/TEN',
+        'severity': 'life-threatening',
+        'action': 'Contraindicated in Japanese',
+        'population': 'Japanese',
+        'evidence': 'Moderate',
+        'pmid': '17387578'
+    },
+    'B*13:01': {
+        'drug': 'Dapsone',
+        'reaction': 'Drug hypersensitivity syndrome',
+        'severity': 'severe',
+        'action': 'Consider alternative',
+        'population': 'Chinese',
+        'evidence': 'Strong',
+        'pmid': '23340012'
+    }
+}
+
+DISEASE_ASSOCIATIONS = {
+    'B*27': {
+        'diseases': ['Ankylosing spondylitis', 'Reactive arthritis', 'Anterior uveitis'],
+        'risk': 'High (OR > 80 for AS)',
+        'evidence': 'Strong',
+        'pmid': '19339956'
+    },
+    'DQ2.5': {
+        'diseases': ['Celiac disease'],
+        'hla_combination': 'DQA1*05:01/DQB1*02:01',
+        'risk': 'High (95% of celiac patients)',
+        'evidence': 'Strong',
+        'pmid': '23851019'
+    },
+    'DQ8': {
+        'diseases': ['Celiac disease', 'Type 1 diabetes'],
+        'hla_combination': 'DQA1*03:01/DQB1*03:02',
+        'risk': 'Moderate',
+        'evidence': 'Strong'
+    },
+    'DR3': {
+        'diseases': ['Type 1 diabetes', 'Systemic lupus erythematosus', 'Autoimmune thyroiditis'],
+        'risk': 'Moderate',
+        'evidence': 'Strong'
+    },
+    'DR4': {
+        'diseases': ['Rheumatoid arthritis', 'Type 1 diabetes'],
+        'risk': 'Moderate',
+        'evidence': 'Strong'
+    }
+}
+
+def normalize_allele(allele):
+    """Normalize allele format."""
+    if not allele:
+        return None
+    allele = allele.strip().upper()
+    allele = allele.replace('HLA-', '').replace('HLA_', '')
+    if '*' not in allele and ':' in allele:
+        parts = allele.split(':')
+        if len(parts[0]) <= 2:
+            allele = parts[0] + '*' + ':'.join(parts[1:])
+    return allele
+
+def check_drug_risks(hla_types):
+    """Check for drug hypersensitivity risks."""
+    risks = []
+    for locus, alleles in hla_types.items():
+        for allele_key in ['allele1', 'allele2']:
+            allele = alleles.get(allele_key)
+            if not allele:
+                continue
+            norm_allele = normalize_allele(allele)
+            if not norm_allele:
+                continue
+            for risk_allele, risk_info in DRUG_HYPERSENSITIVITY.items():
+                if norm_allele.startswith(risk_allele.replace('*', '').split(':')[0] + '*' + risk_allele.split(':')[0].split('*')[1]):
+                    if ':'.join(norm_allele.split(':')[:2]).endswith(risk_allele.split('*')[1]):
+                        risks.append({
+                            'hla_allele': norm_allele,
+                            'matched_risk_allele': risk_allele,
+                            **risk_info
+                        })
+    return risks
+
+def check_disease_associations(hla_types):
+    """Check for disease associations."""
+    associations = []
+    for locus, alleles in hla_types.items():
+        for allele_key in ['allele1', 'allele2']:
+            allele = alleles.get(allele_key)
+            if not allele:
+                continue
+            norm_allele = normalize_allele(allele)
+            if not norm_allele:
+                continue
+            for assoc_allele, assoc_info in DISEASE_ASSOCIATIONS.items():
+                if assoc_allele.replace('*', '') in norm_allele or norm_allele.startswith(assoc_allele):
+                    associations.append({
+                        'hla_allele': norm_allele,
+                        'matched_association': assoc_allele,
+                        **assoc_info
+                    })
+    return associations
+
+with open('$hla_input', 'r') as f:
+    input_data = json.load(f)
+
+hla_types = input_data.get('consensus_typing', input_data.get('typing_results', {}))
+
+drug_risks = check_drug_risks(hla_types)
+disease_assocs = check_disease_associations(hla_types)
+
+output = {
+    'sample': input_data.get('sample', 'unknown'),
+    'analysis_date': datetime.now().isoformat(),
+    'drug_hypersensitivity_risks': drug_risks,
+    'disease_associations': disease_assocs,
+    'hla_types_analyzed': hla_types,
+    'databases_used': ['CPIC', 'PharmGKB', 'IEDB', 'AFND']
+}
+
+with open('$json_output', 'w') as f:
+    json.dump(output, f, indent=2)
+
+html_content = f'''<!DOCTYPE html>
+<html>
+<head>
+    <title>HLA Disease Association Report</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 20px; }}
+        h1 {{ color: #2c3e50; }}
+        h2 {{ color: #e74c3c; border-bottom: 2px solid #e74c3c; padding-bottom: 5px; }}
+        h3 {{ color: #3498db; }}
+        table {{ border-collapse: collapse; width: 100%; margin: 10px 0; }}
+        th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+        th {{ background-color: #3498db; color: white; }}
+        tr:nth-child(even) {{ background-color: #f2f2f2; }}
+        .risk-severe {{ background-color: #ffebee; }}
+        .risk-life-threatening {{ background-color: #ffcdd2; }}
+        .warning {{ color: #e74c3c; font-weight: bold; }}
+        .info {{ color: #2196f3; }}
+    </style>
+</head>
+<body>
+    <h1>HLA Disease Association Report</h1>
+    <p>Analysis Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+    
+    <h2>⚠️ Drug Hypersensitivity Risks</h2>
+'''
+
+if drug_risks:
+    html_content += '''
+    <table>
+        <tr>
+            <th>HLA Allele</th>
+            <th>Drug</th>
+            <th>Reaction</th>
+            <th>Severity</th>
+            <th>Action</th>
+            <th>Evidence</th>
+        </tr>
+'''
+    for risk in drug_risks:
+        severity_class = f"risk-{risk.get('severity', '').replace(' ', '-')}"
+        html_content += f'''
+        <tr class="{severity_class}">
+            <td>{risk.get('hla_allele', 'N/A')}</td>
+            <td><strong>{risk.get('drug', 'N/A')}</strong></td>
+            <td>{risk.get('reaction', 'N/A')}</td>
+            <td class="warning">{risk.get('severity', 'N/A').upper()}</td>
+            <td>{risk.get('action', 'N/A')}</td>
+            <td>{risk.get('evidence', 'N/A')}</td>
+        </tr>
+'''
+    html_content += '</table>'
+else:
+    html_content += '<p class="info">No significant drug hypersensitivity risks identified.</p>'
+
+html_content += '''
+    <h2>Disease Associations</h2>
+'''
+
+if disease_assocs:
+    html_content += '''
+    <table>
+        <tr>
+            <th>HLA Allele</th>
+            <th>Associated Diseases</th>
+            <th>Risk Level</th>
+            <th>Evidence</th>
+        </tr>
+'''
+    for assoc in disease_assocs:
+        diseases = ', '.join(assoc.get('diseases', []))
+        html_content += f'''
+        <tr>
+            <td>{assoc.get('hla_allele', 'N/A')}</td>
+            <td>{diseases}</td>
+            <td>{assoc.get('risk', 'N/A')}</td>
+            <td>{assoc.get('evidence', 'N/A')}</td>
+        </tr>
+'''
+    html_content += '</table>'
+else:
+    html_content += '<p class="info">No significant disease associations identified.</p>'
+
+html_content += '''
+    <h2>HLA Typing Summary</h2>
+    <table>
+        <tr>
+            <th>Locus</th>
+            <th>Allele 1</th>
+            <th>Allele 2</th>
+        </tr>
+'''
+
+for locus, alleles in sorted(hla_types.items()):
+    a1 = alleles.get('allele1', 'N/A')
+    a2 = alleles.get('allele2', 'N/A')
+    html_content += f'''
+        <tr>
+            <td>HLA-{locus}</td>
+            <td>{a1}</td>
+            <td>{a2}</td>
+        </tr>
+'''
+
+html_content += '''
+    </table>
+    
+    <h3>References</h3>
+    <ul>
+        <li>CPIC Guidelines: <a href="https://cpicpgx.org/">https://cpicpgx.org/</a></li>
+        <li>PharmGKB: <a href="https://www.pharmgkb.org/">https://www.pharmgkb.org/</a></li>
+        <li>IEDB: <a href="https://www.iedb.org/">https://www.iedb.org/</a></li>
+    </ul>
+    
+    <p><em>Disclaimer: This report is for research purposes only. Clinical decisions should be made in consultation with healthcare professionals.</em></p>
+</body>
+</html>
+'''
+
+with open('$html_report', 'w') as f:
+    f.write(html_content)
+
+print(f"Found {len(drug_risks)} drug risks and {len(disease_assocs)} disease associations")
+EOF
+    ]]></command>
+    <inputs>
+        <param name="hla_input" type="data" format="json"
+               label="HLA typing results (JSON)"
+               help="JSON output from HLA consensus typing or individual HLA typing tools"/>
+    </inputs>
+    <outputs>
+        <data name="json_output" format="json" label="${tool.name} on ${on_string}: Associations"/>
+        <data name="html_report" format="html" label="${tool.name} on ${on_string}: Report"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="hla_input" value="test_hla.json"/>
+            <output name="html_report" file="expected_report.html" compare="sim_size" delta="500"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**HLA Disease Association Analysis**
+
+分析 HLA 分型结果与疾病及药物超敏反应的关联。
+
+**药物超敏反应风险**
+
+检测与以下药物相关的 HLA 风险等位基因:
+
+| HLA 等位基因 | 药物 | 反应 | 建议 |
+|-------------|------|------|------|
+| B*57:01 | Abacavir | 超敏反应 | 禁用 |
+| B*15:02 | Carbamazepine | SJS/TEN | 亚洲人群禁用 |
+| B*58:01 | Allopurinol | SJS/TEN | 禁用 |
+| A*31:01 | Carbamazepine | DRESS | 考虑替代药物 |
+
+**疾病关联**
+
+分析与以下疾病相关的 HLA 类型:
+
+- 强直性脊柱炎 (HLA-B27)
+- 乳糜泻 (HLA-DQ2.5, DQ8)
+- 1型糖尿病 (HLA-DR3, DR4)
+- 类风湿性关节炎 (HLA-DR4)
+
+**数据来源**
+
+- CPIC 药物基因组学指南
+- PharmGKB 数据库
+- IEDB 免疫表位数据库
+- AFND 等位基因频率数据库
+
+**输出**
+
+1. **JSON**: 结构化的关联分析结果
+2. **HTML Report**: 可视化报告，包含风险提示和建议
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1038/clpt.2011.355</citation>
+        <citation type="doi">10.1093/nar/gky1062</citation>
+    </citations>
+</tool>

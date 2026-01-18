@@ -1,0 +1,234 @@
+<tool id="custom/prsice2/2.3.5" name="PRSice-2" version="2.3.5+galaxy0" profile="21.05">
+    <description>Polygenic Risk Score calculation using clumping and thresholding</description>
+    <macros>
+        <token name="@TOOL_VERSION@">2.3.5</token>
+        <token name="@VERSION_SUFFIX@">+galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">prsice2</requirement>
+        <container type="docker">prsice2:2.3.5</container>
+    </requirements>
+    <version_command>PRSice --help 2>&amp;1 | head -5</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+ln -s '$target_bed' target.bed &&
+ln -s '$target_bim' target.bim &&
+ln -s '$target_fam' target.fam &&
+
+#if $covariates
+    ln -s '$covariates' covariates.txt &&
+#end if
+
+PRSice
+    --base '$base_gwas'
+    --target target
+    --out prsice_output
+    
+    --snp '$base_options.snp_col'
+    --chr '$base_options.chr_col'
+    --bp '$base_options.bp_col'
+    --a1 '$base_options.a1_col'
+    --a2 '$base_options.a2_col'
+    --pvalue '$base_options.pvalue_col'
+    --stat '$base_options.stat_col'
+    
+    #if str($base_options.stat_type) == "or"
+        --or
+    #else
+        --beta
+    #end if
+    
+    --clump-kb $clumping.clump_kb
+    --clump-r2 $clumping.clump_r2
+    --clump-p $clumping.clump_p
+    
+    --bar-levels $thresholding.bar_levels
+    --fastscore
+    --no-full
+    
+    #if str($thresholding.lower) != ''
+        --lower $thresholding.lower
+    #end if
+    
+    #if str($thresholding.upper) != ''
+        --upper $thresholding.upper
+    #end if
+    
+    #if str($thresholding.interval) != ''
+        --interval $thresholding.interval
+    #end if
+    
+    #if $covariates
+        --cov covariates.txt
+        #if str($cov_options.cov_col) != ''
+            --cov-col $cov_options.cov_col
+        #end if
+    #end if
+    
+    #if str($advanced.maf) != ''
+        --maf $advanced.maf
+    #end if
+    
+    #if str($advanced.info) != ''
+        --info $advanced.info
+    #end if
+    
+    --thread \${GALAXY_SLOTS:-4}
+    --seed 42
+
+&& mv prsice_output.summary '$output_summary'
+&& mv prsice_output.prsice '$output_prs'
+#if $output_best_score
+    && mv prsice_output.best '$output_best'
+#end if
+&& mv prsice_output.log '$output_log'
+    ]]></command>
+    <inputs>
+        <param name="base_gwas" type="data" format="tabular,tsv,txt" label="Base GWAS summary statistics"
+               help="GWAS summary statistics file with SNP, CHR, BP, A1, A2, P-value, and effect size columns."/>
+        
+        <param name="target_bed" type="data" format="plink_bed" label="Target genotype BED file"
+               help="PLINK binary genotype file (.bed)."/>
+        <param name="target_bim" type="data" format="bim" label="Target genotype BIM file"
+               help="PLINK variant information file (.bim)."/>
+        <param name="target_fam" type="data" format="fam" label="Target genotype FAM file"
+               help="PLINK sample information file (.fam)."/>
+        
+        <param name="covariates" type="data" format="tabular,tsv,txt" optional="true" 
+               label="Covariates file (optional)"
+               help="File containing covariates for regression. Should include FID, IID, and covariate columns."/>
+        
+        <section name="base_options" title="GWAS File Column Names" expanded="true">
+            <param name="snp_col" type="text" value="SNP" label="SNP column name"/>
+            <param name="chr_col" type="text" value="CHR" label="Chromosome column name"/>
+            <param name="bp_col" type="text" value="BP" label="Base position column name"/>
+            <param name="a1_col" type="text" value="A1" label="Effect allele column name"/>
+            <param name="a2_col" type="text" value="A2" label="Non-effect allele column name"/>
+            <param name="pvalue_col" type="text" value="P" label="P-value column name"/>
+            <param name="stat_col" type="text" value="BETA" label="Effect size column name"/>
+            <param name="stat_type" type="select" label="Effect size type">
+                <option value="beta" selected="true">Beta (log odds ratio or effect size)</option>
+                <option value="or">Odds Ratio</option>
+            </param>
+        </section>
+        
+        <section name="clumping" title="LD Clumping Parameters" expanded="true">
+            <param name="clump_kb" type="integer" min="50" max="1000" value="250"
+                   label="Clumping window (kb)"
+                   help="Distance in kilobases for clumping. Default: 250 kb. Literature recommendation: 250 kb (PMID:30992570)."/>
+            
+            <param name="clump_r2" type="float" min="0.01" max="1.0" value="0.1"
+                   label="Clumping r-squared threshold"
+                   help="LD r-squared threshold for clumping. Default: 0.1. Literature recommendation: 0.1 (PMID:30992570)."/>
+            
+            <param name="clump_p" type="float" min="0" max="1" value="1"
+                   label="Clumping p-value threshold"
+                   help="P-value threshold for clumping. Default: 1 (include all SNPs)."/>
+        </section>
+        
+        <section name="thresholding" title="P-value Thresholding" expanded="true">
+            <param name="bar_levels" type="text" value="0.001,0.05,0.1,0.5,1"
+                   label="P-value bar levels"
+                   help="Comma-separated p-value thresholds for PRS calculation. Default: 0.001,0.05,0.1,0.5,1 (PMID:35251129)."/>
+            
+            <param name="lower" type="float" min="0" max="1" value="5e-08" optional="true"
+                   label="Lower p-value bound"
+                   help="Lower bound for p-value thresholds in high-resolution mode. Default: 5e-8 (PMID:35251129)."/>
+            
+            <param name="upper" type="float" min="0" max="1" value="1.0" optional="true"
+                   label="Upper p-value bound"
+                   help="Upper bound for p-value thresholds in high-resolution mode. Default: 1.0 (PMID:35251129)."/>
+            
+            <param name="interval" type="float" min="0.00001" max="0.1" value="0.00005" optional="true"
+                   label="P-value interval"
+                   help="Interval for p-value thresholds in high-resolution mode. Default: 0.00005 (PRSice-2 default)."/>
+        </section>
+        
+        <section name="cov_options" title="Covariate Options" expanded="false">
+            <param name="cov_col" type="text" value="PC1,PC2,PC3,PC4,PC5,PC6,PC7,PC8,PC9,PC10" optional="true"
+                   label="Covariate columns"
+                   help="Comma-separated list of covariate column names to include. Default: 10 PCs (PMID:39425790)."/>
+        </section>
+        
+        <section name="advanced" title="Advanced Options" expanded="false">
+            <param name="maf" type="float" min="0" max="0.5" value="0.01" optional="true"
+                   label="MAF filter"
+                   help="Minor allele frequency filter for target genotypes. Default: 0.01 (PMID:35251129)."/>
+            
+            <param name="info" type="float" min="0" max="1" value="0.8" optional="true"
+                   label="INFO score filter"
+                   help="Imputation INFO score filter. Default: 0.8 (PMID:31307061)."/>
+        </section>
+        
+        <param name="output_best_score" type="boolean" checked="true"
+               label="Output best PRS score"
+               help="Output the best performing PRS based on R-squared."/>
+    </inputs>
+    <outputs>
+        <data name="output_summary" format="prsice_summary" label="${tool.name} on ${on_string}: Summary"/>
+        <data name="output_prs" format="prsice_scores" label="${tool.name} on ${on_string}: PRS Scores"/>
+        <data name="output_best" format="tabular" label="${tool.name} on ${on_string}: Best PRS">
+            <filter>output_best_score</filter>
+        </data>
+        <data name="output_log" format="txt" label="${tool.name} on ${on_string}: Log"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="4">
+            <param name="base_gwas" value="test_gwas.txt"/>
+            <param name="target_bed" value="test.bed"/>
+            <param name="target_bim" value="test.bim"/>
+            <param name="target_fam" value="test.fam"/>
+            <section name="clumping">
+                <param name="clump_kb" value="250"/>
+                <param name="clump_r2" value="0.1"/>
+            </section>
+            <output name="output_summary" file="expected_summary.txt" compare="sim_size" delta="100"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**PRSice-2 - Polygenic Risk Score Software**
+
+PRSice-2 is the de facto software for calculating Polygenic Risk Scores (PRS) using the Clumping and Thresholding (C+T) method.
+
+**Method Overview**
+
+1. **LD Clumping**: Remove SNPs in linkage disequilibrium to obtain independent signals
+2. **P-value Thresholding**: Select SNPs below various p-value thresholds
+3. **Score Calculation**: Weight alleles by effect sizes from GWAS
+
+**Best Practice Parameters (from literature)**
+
+| Parameter | Recommended Value | Source |
+|-----------|------------------|--------|
+| clump-kb | 250 | PMID:30992570 |
+| clump-r2 | 0.1 | PMID:30992570 |
+| bar-levels | 0.001,0.05,0.1,0.5,1 | PMID:35251129 |
+
+**Input Files**
+
+1. **Base GWAS**: Summary statistics with SNP, CHR, BP, A1, A2, P, and BETA/OR columns
+2. **Target Genotypes**: PLINK binary files (.bed/.bim/.fam)
+3. **Covariates** (optional): PCA eigenvectors for population stratification correction
+
+**Output Files**
+
+1. **Summary**: Model performance metrics (R-squared, p-values) at each threshold
+2. **PRS Scores**: Per-individual polygenic scores at each threshold
+3. **Best PRS**: Scores at the optimal p-value threshold
+
+**Population Stratification**
+
+Include PCA eigenvectors (10 PCs recommended) as covariates to control for population structure.
+
+**Citations**
+
+Choi SW, O'Reilly PF. PRSice-2: Polygenic Risk Score software for biobank-scale data. Gigascience. 2019;8(7):giz082. doi:10.1093/gigascience/giz082
+
+**Links**
+
+- GitHub: https://github.com/choishingwan/PRSice
+- Documentation: https://www.prsice.info/
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1093/gigascience/giz082</citation>
+    </citations>
+</tool>

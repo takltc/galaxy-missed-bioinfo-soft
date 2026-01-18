@@ -1,0 +1,3 @@
+<section id="hla_typing" name="HLA Typing">
+    <tool file="hla_hd/hla_hd.xml"/>
+</section>

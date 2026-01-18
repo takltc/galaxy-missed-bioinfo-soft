@@ -1,0 +1,248 @@
+<tool id="custom/plink2/2.0" name="PLINK2" version="2.0+galaxy0" profile="21.05">
+    <description>Genotype data quality control and PCA analysis</description>
+    <macros>
+        <token name="@TOOL_VERSION@">2.0</token>
+        <token name="@VERSION_SUFFIX@">+galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="2.00a5.12">plink2</requirement>
+        <container type="docker">plink2:2.0</container>
+    </requirements>
+    <version_command>plink2 --version 2>&amp;1 | head -1</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+## 设置输入文件的符号链接
+#if str($input_type.input_format) == "vcf"
+    ln -s '$input_type.vcf_input' input.vcf.gz &&
+#else
+    ln -s '$input_type.bed_input' input.bed &&
+    ln -s '$input_type.bim_input' input.bim &&
+    ln -s '$input_type.fam_input' input.fam &&
+#end if
+
+## 运行 PLINK2
+plink2
+    ## 输入文件
+    #if str($input_type.input_format) == "vcf"
+        --vcf input.vcf.gz
+    #else
+        --bfile input
+    #end if
+    
+    ## 分析模式
+    #if str($analysis_mode.mode) == "qc"
+        ## 质量控制模式
+        #if str($analysis_mode.maf) != ''
+            --maf $analysis_mode.maf
+        #end if
+        
+        #if str($analysis_mode.geno) != ''
+            --geno $analysis_mode.geno
+        #end if
+        
+        #if str($analysis_mode.mind) != ''
+            --mind $analysis_mode.mind
+        #end if
+        
+        #if str($analysis_mode.hwe) != ''
+            --hwe $analysis_mode.hwe
+        #end if
+        
+        ## 输出 PLINK binary 格式
+        --make-bed
+        --out qc_output
+        
+    #else if str($analysis_mode.mode) == "pca"
+        ## PCA 分析模式
+        #if str($analysis_mode.pca_count) != ''
+            --pca $analysis_mode.pca_count
+        #else
+            --pca 10
+        #end if
+        
+        #if $analysis_mode.approx
+            approx
+        #end if
+        
+        --out pca_output
+        
+    #else if str($analysis_mode.mode) == "freq"
+        ## 等位基因频率计算
+        --freq
+        --out freq_output
+        
+    #end if
+
+## 重命名输出文件
+#if str($analysis_mode.mode) == "qc"
+    && mv qc_output.bed '$output_bed'
+    && mv qc_output.bim '$output_bim'
+    && mv qc_output.fam '$output_fam'
+    && mv qc_output.log '$output_log'
+#else if str($analysis_mode.mode) == "pca"
+    && mv pca_output.eigenvec '$output_eigenvec'
+    && mv pca_output.eigenval '$output_eigenval'
+    && mv pca_output.log '$output_log'
+#else if str($analysis_mode.mode) == "freq"
+    && mv freq_output.afreq '$output_freq'
+    && mv freq_output.log '$output_log'
+#end if
+    ]]></command>
+    <inputs>
+        <!-- 输入格式选择 -->
+        <conditional name="input_type">
+            <param name="input_format" type="select" label="Input format">
+                <option value="vcf">VCF file</option>
+                <option value="plink" selected="true">PLINK binary (bed/bim/fam)</option>
+            </param>
+            <when value="vcf">
+                <param name="vcf_input" type="data" format="vcf,vcf_bgzip" label="VCF file"
+                       help="Compressed or uncompressed VCF file containing genotype data."/>
+            </when>
+            <when value="plink">
+                <param name="bed_input" type="data" format="plink_bed" label="BED file"
+                       help="PLINK binary genotype file (.bed)."/>
+                <param name="bim_input" type="data" format="bim" label="BIM file"
+                       help="PLINK variant information file (.bim)."/>
+                <param name="fam_input" type="data" format="fam" label="FAM file"
+                       help="PLINK sample information file (.fam)."/>
+            </when>
+        </conditional>
+        
+        <!-- 分析模式选择 -->
+        <conditional name="analysis_mode">
+            <param name="mode" type="select" label="Analysis mode">
+                <option value="qc" selected="true">Quality Control (QC)</option>
+                <option value="pca">Principal Component Analysis (PCA)</option>
+                <option value="freq">Allele Frequency Calculation</option>
+            </param>
+            <when value="qc">
+                <param name="maf" type="float" min="0" max="0.5" value="0.01" optional="true"
+                       label="Minimum allele frequency (MAF)"
+                       help="Exclude variants with minor allele frequency below this threshold. Default: 0.01 (1%). Literature recommendation: 0.01 for common variant PRS."/>
+                
+                <param name="geno" type="float" min="0" max="1" value="0.02" optional="true"
+                       label="Maximum missing rate per variant (--geno)"
+                       help="Exclude variants with missing call rate above this threshold. Default: 0.02 (2%). Literature recommendation: 0.02 for high-quality genotyping."/>
+                
+                <param name="mind" type="float" min="0" max="1" value="0.02" optional="true"
+                       label="Maximum missing rate per sample (--mind)"
+                       help="Exclude samples with missing call rate above this threshold. Default: 0.02 (2%). Literature recommendation: 0.02."/>
+                
+                <param name="hwe" type="float" min="0" max="1" value="1e-6" optional="true"
+                       label="Hardy-Weinberg equilibrium p-value threshold (--hwe)"
+                       help="Exclude variants with HWE exact test p-value below this threshold. Default: 1e-6. Literature recommendation: 1e-6 for population genetics."/>
+            </when>
+            <when value="pca">
+                <param name="pca_count" type="integer" min="1" max="100" value="10" optional="true"
+                       label="Number of principal components"
+                       help="Number of PCs to compute. Default: 10. Literature recommendation: 10 PCs for population stratification correction."/>
+                
+                <param name="approx" type="boolean" checked="true"
+                       label="Use approximate PCA"
+                       help="Use randomized algorithm for faster computation on large datasets. Recommended for datasets with >50,000 samples."/>
+            </when>
+            <when value="freq">
+                <!-- 等位基因频率计算不需要额外参数 -->
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <!-- QC 模式输出 -->
+        <data name="output_bed" format="plink_bed" label="${tool.name} on ${on_string}: QC BED">
+            <filter>analysis_mode['mode'] == 'qc'</filter>
+        </data>
+        <data name="output_bim" format="bim" label="${tool.name} on ${on_string}: QC BIM">
+            <filter>analysis_mode['mode'] == 'qc'</filter>
+        </data>
+        <data name="output_fam" format="fam" label="${tool.name} on ${on_string}: QC FAM">
+            <filter>analysis_mode['mode'] == 'qc'</filter>
+        </data>
+        
+        <!-- PCA 模式输出 -->
+        <data name="output_eigenvec" format="eigenvec" label="${tool.name} on ${on_string}: Eigenvectors">
+            <filter>analysis_mode['mode'] == 'pca'</filter>
+        </data>
+        <data name="output_eigenval" format="eigenval" label="${tool.name} on ${on_string}: Eigenvalues">
+            <filter>analysis_mode['mode'] == 'pca'</filter>
+        </data>
+        
+        <!-- Freq 模式输出 -->
+        <data name="output_freq" format="afreq" label="${tool.name} on ${on_string}: Allele Frequencies">
+            <filter>analysis_mode['mode'] == 'freq'</filter>
+        </data>
+        
+        <!-- 通用日志输出 -->
+        <data name="output_log" format="txt" label="${tool.name} on ${on_string}: Log"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="4">
+            <conditional name="input_type">
+                <param name="input_format" value="plink"/>
+                <param name="bed_input" value="test.bed"/>
+                <param name="bim_input" value="test.bim"/>
+                <param name="fam_input" value="test.fam"/>
+            </conditional>
+            <conditional name="analysis_mode">
+                <param name="mode" value="qc"/>
+                <param name="maf" value="0.01"/>
+                <param name="geno" value="0.02"/>
+            </conditional>
+            <output name="output_bed" file="expected_qc.bed" compare="sim_size" delta="100"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**PLINK2 - 高性能基因型数据分析工具**
+
+PLINK2 是 PLINK 1.9 的完全重写版本，提供显著的性能提升和新功能。本工具封装了 PRS 工作流所需的核心功能。
+
+**主要功能**
+
+1. **质量控制 (QC)**
+   - MAF 过滤：排除低频变异 (默认 ≥1%)
+   - 缺失率过滤：排除低质量变异和样本 (默认 ≤2%)
+   - HWE 检验：排除偏离 Hardy-Weinberg 平衡的变异
+
+2. **主成分分析 (PCA)**
+   - 用于人群分层校正
+   - 推荐使用前 10 个 PC 作为协变量
+
+3. **等位基因频率计算**
+   - 计算每个变异的等位基因频率
+
+**PRS 最佳实践参数 (来自 UK Biobank 研究)**
+
+| 参数 | 推荐值 | 文献来源 |
+|------|--------|----------|
+| MAF | ≥0.01 | PMID:35251129 |
+| geno | ≤0.02 | PMID:35251129 |
+| mind | ≤0.02 | PMID:35251129 |
+| HWE | ≥1e-6 | PMID:35251129 |
+| PCA | 10 PCs | PMID:39425790 |
+
+**输入文件格式**
+
+- **VCF**: 标准变异调用格式
+- **PLINK binary**: 
+  - .bed: 基因型数据 (二进制)
+  - .bim: 变异信息
+  - .fam: 样本信息
+
+**输出文件**
+
+- **QC 模式**: 过滤后的 PLINK binary 文件 (.bed/.bim/.fam)
+- **PCA 模式**: 特征向量 (.eigenvec) 和特征值 (.eigenval)
+- **Freq 模式**: 等位基因频率表 (.afreq)
+
+**参考文献**
+
+Chang CC, Chow CC, Tellier LC, Vattikuti S, Purcell SM, Lee JJ. Second-generation PLINK: rising to the challenge of larger and richer datasets. Gigascience. 2015;4:7. doi:10.1186/s13742-015-0047-8
+
+**更多信息**
+
+- 官网: https://www.cog-genomics.org/plink/2.0/
+- GitHub: https://github.com/chrchang/plink-ng
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1186/s13742-015-0047-8</citation>
+    </citations>
+</tool>

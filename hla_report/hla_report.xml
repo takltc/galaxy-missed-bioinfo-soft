@@ -1,0 +1,260 @@
+<tool id="hla_report" name="HLA Typing Report" version="1.0.0+galaxy0" profile="21.05">
+    <description>Generate comprehensive HLA typing report</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.0.0</token>
+        <token name="@VERSION_SUFFIX@">+galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="3.11">python</requirement>
+        <container type="docker">hla-report:1.0.0</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+python3 << 'EOF'
+import json
+from datetime import datetime
+
+with open('$consensus_input', 'r') as f:
+    consensus_data = json.load(f)
+
+with open('$disease_input', 'r') as f:
+    disease_data = json.load(f)
+
+hla_types = consensus_data.get('consensus_typing', {})
+confidence = consensus_data.get('confidence_scores', {})
+drug_risks = disease_data.get('drug_hypersensitivity_risks', [])
+disease_assocs = disease_data.get('disease_associations', [])
+
+summary = {
+    'sample_id': consensus_data.get('sample', 'Unknown'),
+    'report_date': datetime.now().isoformat(),
+    'report_version': '@TOOL_VERSION@',
+    'hla_typing': {},
+    'clinical_alerts': [],
+    'transplant_matching': {},
+    'metadata': {
+        'tools_used': consensus_data.get('input_tools', []),
+        'resolution': consensus_data.get('parameters', {}).get('resolution', '4-field'),
+        'databases': disease_data.get('databases_used', [])
+    }
+}
+
+for locus, alleles in hla_types.items():
+    locus_conf = confidence.get(locus, {})
+    summary['hla_typing'][locus] = {
+        'allele1': alleles.get('allele1', 'NA'),
+        'allele2': alleles.get('allele2', 'NA'),
+        'confidence1': locus_conf.get('allele1', {}).get('confidence', 0),
+        'confidence2': locus_conf.get('allele2', {}).get('confidence', 0)
+    }
+
+for risk in drug_risks:
+    summary['clinical_alerts'].append({
+        'type': 'DRUG_HYPERSENSITIVITY',
+        'severity': risk.get('severity', 'unknown'),
+        'allele': risk.get('hla_allele'),
+        'drug': risk.get('drug'),
+        'reaction': risk.get('reaction'),
+        'action': risk.get('action'),
+        'guideline': risk.get('guideline', 'N/A')
+    })
+
+transplant_loci = {
+    'kidney': ['A', 'B', 'DRB1'],
+    'bone_marrow': ['A', 'B', 'C', 'DRB1'],
+    'hsct': ['A', 'B', 'C', 'DRB1', 'DQB1']
+}
+
+for tx_type, loci in transplant_loci.items():
+    matching_alleles = []
+    for locus in loci:
+        if locus in hla_types:
+            matching_alleles.append(f"HLA-{locus}: {hla_types[locus].get('allele1', 'NA')}/{hla_types[locus].get('allele2', 'NA')}")
+    summary['transplant_matching'][tx_type] = {
+        'loci': loci,
+        'alleles': matching_alleles,
+        'complete': len(matching_alleles) == len(loci)
+    }
+
+with open('$summary_json', 'w') as f:
+    json.dump(summary, f, indent=2)
+
+html_content = f'''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HLA Typing Report</title>
+    <style>
+        * {{ box-sizing: border-box; }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            margin: 0; padding: 20px; background: #f5f5f5; color: #333;
+        }}
+        .container {{ max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+        h1 {{ color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }}
+        h2 {{ color: #2980b9; margin-top: 30px; }}
+        .header-info {{ display: flex; justify-content: space-between; background: #ecf0f1; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
+        .alert-box {{ padding: 15px; margin: 10px 0; border-radius: 5px; border-left: 4px solid; }}
+        .alert-severe {{ background: #ffebee; border-color: #c62828; }}
+        .alert-life-threatening {{ background: #ffcdd2; border-color: #b71c1c; }}
+        .alert-moderate {{ background: #fff3e0; border-color: #f57c00; }}
+        table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
+        th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }}
+        th {{ background: #3498db; color: white; }}
+        tr:hover {{ background: #f5f5f5; }}
+        .confidence {{ display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.85em; }}
+        .conf-high {{ background: #c8e6c9; color: #2e7d32; }}
+        .conf-medium {{ background: #fff9c4; color: #f57f17; }}
+        .conf-low {{ background: #ffcdd2; color: #c62828; }}
+        .badge {{ display: inline-block; padding: 4px 10px; border-radius: 15px; font-size: 0.8em; font-weight: bold; }}
+        .badge-success {{ background: #4caf50; color: white; }}
+        .badge-warning {{ background: #ff9800; color: white; }}
+        .badge-danger {{ background: #f44336; color: white; }}
+        .transplant-section {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }}
+        .transplant-card {{ background: #fafafa; padding: 15px; border-radius: 5px; border: 1px solid #ddd; }}
+        .footer {{ margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 0.9em; color: #666; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧬 HLA Typing Report</h1>
+        
+        <div class="header-info">
+            <div><strong>Sample ID:</strong> {summary['sample_id']}</div>
+            <div><strong>Report Date:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
+            <div><strong>Resolution:</strong> {summary['metadata']['resolution']}</div>
+        </div>
+'''
+
+if summary['clinical_alerts']:
+    html_content += '<h2>⚠️ Clinical Alerts</h2>'
+    for alert in summary['clinical_alerts']:
+        severity = alert.get('severity', 'unknown')
+        alert_class = f"alert-{severity.replace(' ', '-')}"
+        html_content += f'''
+        <div class="alert-box {alert_class}">
+            <strong>{alert['drug']}</strong> - {alert['reaction']}<br>
+            <small>HLA: {alert['allele']} | Action: {alert['action']} | Guideline: {alert['guideline']}</small>
+        </div>
+'''
+else:
+    html_content += '<h2>✅ Clinical Alerts</h2><p>No significant drug hypersensitivity risks identified.</p>'
+
+html_content += '''
+        <h2>HLA Typing Results</h2>
+        <table>
+            <tr>
+                <th>Locus</th>
+                <th>Allele 1</th>
+                <th>Allele 2</th>
+                <th>Confidence</th>
+            </tr>
+'''
+
+for locus in sorted(summary['hla_typing'].keys()):
+    data = summary['hla_typing'][locus]
+    conf_avg = (data['confidence1'] + data['confidence2']) / 2
+    conf_class = 'conf-high' if conf_avg >= 0.8 else ('conf-medium' if conf_avg >= 0.5 else 'conf-low')
+    html_content += f'''
+            <tr>
+                <td><strong>HLA-{locus}</strong></td>
+                <td>{data['allele1']}</td>
+                <td>{data['allele2']}</td>
+                <td><span class="confidence {conf_class}">{conf_avg:.0%}</span></td>
+            </tr>
+'''
+
+html_content += '''
+        </table>
+        
+        <h2>Transplant Matching Profile</h2>
+        <div class="transplant-section">
+'''
+
+tx_names = {'kidney': '🫘 Kidney', 'bone_marrow': '🦴 Bone Marrow', 'hsct': '💉 HSCT (10/10)'}
+for tx_type, data in summary['transplant_matching'].items():
+    status_badge = 'badge-success' if data['complete'] else 'badge-warning'
+    status_text = 'Complete' if data['complete'] else 'Incomplete'
+    html_content += f'''
+            <div class="transplant-card">
+                <h3>{tx_names.get(tx_type, tx_type)}</h3>
+                <span class="badge {status_badge}">{status_text}</span>
+                <ul>
+'''
+    for allele in data['alleles']:
+        html_content += f'<li>{allele}</li>'
+    html_content += '''
+                </ul>
+            </div>
+'''
+
+html_content += f'''
+        </div>
+        
+        <div class="footer">
+            <p><strong>Tools Used:</strong> {', '.join(summary['metadata']['tools_used'])}</p>
+            <p><strong>Databases:</strong> {', '.join(summary['metadata']['databases'])}</p>
+            <p><em>This report is for research and clinical decision support purposes. All results should be verified by certified laboratory methods for clinical use.</em></p>
+        </div>
+    </div>
+</body>
+</html>
+'''
+
+with open('$final_report', 'w') as f:
+    f.write(html_content)
+
+print(f"Report generated with {len(summary['hla_typing'])} HLA loci and {len(summary['clinical_alerts'])} clinical alerts")
+EOF
+    ]]></command>
+    <inputs>
+        <param name="consensus_input" type="data" format="json"
+               label="Consensus typing results (JSON)"
+               help="JSON output from HLA Consensus Typing tool"/>
+        
+        <param name="disease_input" type="data" format="json"
+               label="Disease association results (JSON)"
+               help="JSON output from HLA Disease Association tool"/>
+    </inputs>
+    <outputs>
+        <data name="final_report" format="html" label="${tool.name} on ${on_string}: Report"/>
+        <data name="summary_json" format="json" label="${tool.name} on ${on_string}: Summary"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="consensus_input" value="test_consensus.json"/>
+            <param name="disease_input" value="test_disease.json"/>
+            <output name="final_report" file="expected_report.html" compare="sim_size" delta="500"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**HLA Typing Report Generator**
+
+生成综合的 HLA 分型分析报告，整合分型结果、临床风险和移植配型信息。
+
+**报告内容**
+
+1. **临床警告**: 药物超敏反应风险提示
+2. **HLA 分型结果**: 完整的等位基因和置信度信息
+3. **移植配型档案**: 肾脏、骨髓、HSCT 配型所需的 HLA 信息
+
+**输入要求**
+
+- 共识分型 JSON (来自 HLA Consensus Typing)
+- 疾病关联 JSON (来自 HLA Disease Association)
+
+**输出**
+
+- HTML 格式的可视化报告
+- JSON 格式的结构化摘要数据
+    ]]></help>
+    <citations>
+        <citation type="bibtex">
+@misc{hla_report,
+  title={HLA Typing Report Generator},
+  author={Galaxy Tools},
+  year={2024}
+}
+        </citation>
+    </citations>
+</tool>

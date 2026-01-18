@@ -1,0 +1,77 @@
+<tool id="custom/prs_interpreter/1.0.0" name="PRS Risk Interpreter" version="1.0.0+galaxy0" profile="21.05">
+    <description>Interpret PRS percentiles and generate risk categories</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.0.0</token>
+    </macros>
+    <requirements>
+        <container type="docker">prs_interpreter:1.0.0</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+python /usr/local/bin/prs_interpreter.py
+    --percentiles '$percentile_input'
+    --threshold-high $thresholds.high
+    --threshold-elevated $thresholds.elevated
+    --threshold-average $thresholds.average
+    --output-categories '$output_categories'
+    --output-recommendations '$output_recommendations'
+    ]]></command>
+    <inputs>
+        <param name="percentile_input" type="data" format="json" label="Percentile results"
+               help="JSON file with percentile calculations from PRS Percentile Calculator."/>
+        
+        <section name="thresholds" title="Risk Thresholds" expanded="true">
+            <param name="high" type="integer" min="80" max="99" value="90"
+                   label="High risk percentile threshold"
+                   help="Percentile threshold for high risk category. Default: 90 (PMID:36280697)."/>
+            
+            <param name="elevated" type="integer" min="50" max="89" value="75"
+                   label="Elevated risk percentile threshold"
+                   help="Percentile threshold for elevated risk category. Default: 75."/>
+            
+            <param name="average" type="integer" min="10" max="49" value="25"
+                   label="Average risk lower bound"
+                   help="Lower percentile bound for average risk category. Default: 25."/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output_categories" format="json" label="${tool.name} on ${on_string}: Risk Categories"/>
+        <data name="output_recommendations" format="json" label="${tool.name} on ${on_string}: Recommendations"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="percentile_input" value="test_percentiles.json"/>
+            <output name="output_categories" file="expected_categories.json" compare="sim_size" delta="100"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**PRS Risk Interpreter**
+
+Interprets PRS percentiles and generates clinical risk categories with actionable recommendations.
+
+**Risk Categories**
+
+| Category | Percentile | Action |
+|----------|------------|--------|
+| Very High | ≥95% | Specialist referral |
+| High | ≥90% | Enhanced screening |
+| Elevated | ≥75% | Lifestyle modification |
+| Average | 25-75% | Standard screening |
+| Low | <25% | Standard screening |
+
+**Clinical Interpretation Guidelines**
+
+Based on PMID:36280697 (PRS clinical implementation guidelines):
+- PRS should be interpreted in context of family history and other risk factors
+- Thresholds may vary by disease and clinical setting
+- Results should be discussed with healthcare providers
+
+**Output**
+
+1. **Risk Categories**: Per-sample risk classification with labels and colors
+2. **Recommendations**: Actionable lifestyle and screening recommendations
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1038/s41591-022-02035-7</citation>
+        <citation type="doi">10.1038/s41596-022-00686-2</citation>
+    </citations>
+</tool>

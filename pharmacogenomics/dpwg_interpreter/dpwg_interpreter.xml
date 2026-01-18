@@ -1,0 +1,239 @@
+<tool id="dpwg_interpreter" name="DPWG Interpreter" version="1.0.0+galaxy0" profile="21.05">
+    <description>Dutch Pharmacogenetics Working Group guideline interpretation</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.0.0</token>
+        <token name="@GALAXY_VERSION@">galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">dpwg-interpreter</requirement>
+        <container type="docker">omniverse/dpwg-interpreter:1.0.0</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        ## 创建输入文件符号链接
+        ln -s '$diplotypes' diplotypes.tsv &&
+        
+        mkdir -p output &&
+        
+        dpwg-interpret
+            --diplotypes diplotypes.tsv
+            --output-dir output
+            --output-prefix result
+            --dpwg-version '$dpwg_version'
+            #if $include_actionable
+                --actionable-only
+            #end if
+            #if $include_gene_drug_matrix
+                --gene-drug-matrix
+            #end if
+            #if str($therapeutic_area) != ""
+                --therapeutic-area '$therapeutic_area'
+            #end if
+            --output-format '$output_format'
+            --language '$language'
+        
+        && mv output/result.recommendations.json '$dpwg_recommendations'
+        #if $output_clinical_summary
+            && mv output/result.clinical_summary.tsv '$clinical_summary'
+        #end if
+    ]]></command>
+    <inputs>
+        <param name="diplotypes" type="data" format="json" label="Diplotype calls" help="PharmCAT or similar tool output containing gene diplotypes"/>
+        
+        <param name="dpwg_version" type="select" label="DPWG guideline version" help="Select the DPWG guideline version to use.">
+            <option value="2023.12" selected="true">2023.12 (Latest)</option>
+            <option value="2023.06">2023.06</option>
+            <option value="2022.12">2022.12</option>
+        </param>
+        
+        <param name="therapeutic_area" type="select" optional="true" label="Filter by therapeutic area" help="Limit recommendations to specific therapeutic areas.">
+            <option value="">All therapeutic areas</option>
+            <option value="cardiovascular">Cardiovascular</option>
+            <option value="psychiatry">Psychiatry</option>
+            <option value="oncology">Oncology</option>
+            <option value="pain">Pain Management</option>
+            <option value="infectious">Infectious Disease</option>
+            <option value="immunology">Immunology</option>
+            <option value="gastroenterology">Gastroenterology</option>
+        </param>
+        
+        <param name="include_actionable" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Actionable recommendations only" help="Only include recommendations that require therapeutic action"/>
+        
+        <param name="include_gene_drug_matrix" type="boolean" truevalue="true" falsevalue="false" checked="true" label="Include gene-drug interaction matrix" help="Generate matrix showing all gene-drug relationships"/>
+        
+        <param name="output_format" type="select" label="Output format">
+            <option value="json" selected="true">JSON (Structured data)</option>
+            <option value="html">HTML (Readable report)</option>
+        </param>
+        
+        <param name="language" type="select" label="Report language">
+            <option value="en" selected="true">English</option>
+            <option value="nl">Dutch (Nederlands)</option>
+        </param>
+        
+        <param name="output_clinical_summary" type="boolean" truevalue="true" falsevalue="false" checked="true" label="Output clinical summary" help="Generate tabular clinical summary"/>
+    </inputs>
+    <outputs>
+        <data name="dpwg_recommendations" format="json" label="${tool.name} on ${on_string}: DPWG Recommendations">
+            <change_format>
+                <when input="output_format" value="html" format="html"/>
+            </change_format>
+        </data>
+        
+        <data name="clinical_summary" format="tabular" label="${tool.name} on ${on_string}: Clinical Summary">
+            <filter>output_clinical_summary</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="diplotypes" value="test_diplotypes.tsv"/>
+            <param name="dpwg_version" value="2023.12"/>
+            <param name="output_clinical_summary" value="true"/>
+            <output name="dpwg_recommendations" file="expected_dpwg.json" compare="sim_size"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**DPWG Interpreter - Dutch Pharmacogenetics Working Group Guidelines**
+======================================================================
+
+This tool interprets pharmacogenomic diplotypes according to the Dutch 
+Pharmacogenetics Working Group (DPWG) guidelines, providing therapeutic 
+recommendations complementary to CPIC guidelines.
+
+**Overview**
+------------
+
+DPWG is a collaborative effort of the Royal Dutch Pharmacists Association 
+(KNMP) that provides pharmacogenetic recommendations integrated into clinical 
+practice in the Netherlands. Key features:
+
+- Practical therapeutic recommendations
+- Emphasis on actionable guidance
+- Integrated with Dutch electronic prescribing systems
+- Complementary to CPIC guidelines
+
+**DPWG vs CPIC Comparison**
+---------------------------
+
+| Aspect | DPWG | CPIC |
+|--------|------|------|
+| Origin | Netherlands | International |
+| Focus | Practical recommendations | Evidence synthesis |
+| Format | Therapeutic alternatives | Dosing guidance |
+| Integration | Dutch EHR systems | PharmGKB/PharmCAT |
+| Updates | Regular (KNMP) | As needed (PharmGKB) |
+
+**Supported Genes**
+-------------------
+
+DPWG provides recommendations for:
+
+- **CYP2D6**: Antidepressants, antipsychotics, opioids, tamoxifen
+- **CYP2C19**: Clopidogrel, PPIs, antidepressants, voriconazole
+- **CYP2C9**: NSAIDs, sulfonamides, phenytoin
+- **TPMT/NUDT15**: Thiopurines
+- **DPYD**: Fluoropyrimidines
+- **SLCO1B1**: Statins
+- **VKORC1**: Vitamin K antagonists
+- **HLA-B**: Carbamazepine, abacavir, allopurinol
+- **UGT1A1**: Irinotecan
+- **Factor V Leiden**: Hormonal contraceptives
+
+**Recommendation Categories**
+-----------------------------
+
+DPWG recommendations include:
+
+| Category | Description |
+|----------|-------------|
+| NO action | Standard therapy appropriate |
+| Alternative drug | Use different medication |
+| Dose adjustment | Modify standard dose |
+| Additional monitoring | Increased clinical oversight |
+| Contraindicated | Do not use this combination |
+
+**Input Format**
+----------------
+
+The diplotype input should contain:
+
+| Column | Description |
+|--------|-------------|
+| gene | Gene symbol |
+| diplotype | Star allele notation |
+| phenotype | Metabolizer status (optional) |
+
+**Output Format**
+-----------------
+
+The recommendations JSON contains:
+
+.. code-block:: json
+
+    {
+        "patient_id": "sample_001",
+        "dpwg_version": "2023.12",
+        "recommendations": [
+            {
+                "gene": "CYP2D6",
+                "phenotype": "Poor Metabolizer",
+                "drug": "codeine",
+                "recommendation": "Use alternative analgesic (not tramadol or oxycodone)",
+                "action_required": true,
+                "therapeutic_area": "pain",
+                "source_url": "https://www.knmp.nl/..."
+            }
+        ],
+        "gene_drug_matrix": {
+            "CYP2D6": ["codeine", "tramadol", "amitriptyline", "nortriptyline"],
+            "CYP2C19": ["clopidogrel", "omeprazole", "voriconazole"]
+        }
+    }
+
+**Therapeutic Areas**
+---------------------
+
+DPWG covers major therapeutic domains:
+
+- **Cardiovascular**: Clopidogrel, statins, warfarin
+- **Psychiatry**: SSRIs, TCAs, antipsychotics
+- **Oncology**: Tamoxifen, fluoropyrimidines, irinotecan
+- **Pain**: Opioids (codeine, tramadol, oxycodone)
+- **Infectious Disease**: Voriconazole, efavirenz
+- **Immunology**: Thiopurines
+- **Gastroenterology**: PPIs
+
+**Workflow Integration**
+------------------------
+
+Recommended combined approach::
+
+    Diplotypes → CPIC Interpreter → CPIC Recommendations
+        │                                    │
+        └──→ DPWG Interpreter → DPWG Recommendations
+                                             │
+                                             ↓
+                                    PGx Report (merged)
+
+**Citation**
+------------
+
+If you use DPWG guidelines, please cite:
+
+Swen JJ, Nijenhuis M, de Boer A, et al. Pharmacogenetics: from bench to byte.
+Clin Pharmacol Ther. 2011;89(5):662-673.
+
+Bank PCD, Caudle KE, Swen JJ, et al. Comparison of the Guidelines of the 
+Clinical Pharmacogenetics Implementation Consortium and the Dutch 
+Pharmacogenetics Working Group. Clin Pharmacol Ther. 2018;103(4):599-618.
+
+**Links**
+---------
+
+- DPWG/KNMP: https://www.knmp.nl/
+- PharmGKB DPWG: https://www.pharmgkb.org/page/dpwg
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1038/clpt.2011.34</citation>
+        <citation type="doi">10.1002/cpt.1058</citation>
+    </citations>
+</tool>

@@ -1,0 +1,101 @@
+<tool id="custom/prs_report/1.0.0" name="PRS Report Generator" version="1.0.0+galaxy0" profile="21.05">
+    <description>Generate HTML reports and radar charts for PRS results</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.0.0</token>
+    </macros>
+    <requirements>
+        <container type="docker">prs_report:1.0.0</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+python /usr/local/bin/prs_report.py
+    --prs-summary '$prs_summary'
+    --percentiles '$percentiles'
+    --risk-categories '$risk_categories'
+    --recommendations '$recommendations_input'
+    #if $include_radar_chart
+        --include-radar
+        --output-radar '$output_radar'
+    #end if
+    #if $include_lifestyle_advice
+        --include-lifestyle
+    #end if
+    --output-html '$output_html'
+    --output-json '$output_json'
+    ]]></command>
+    <inputs>
+        <param name="prs_summary" type="data" format="prsice_summary" label="PRS summary"
+               help="PRSice-2 summary file (.summary) with PRS model performance metrics."/>
+        
+        <param name="percentiles" type="data" format="json" label="Percentile results"
+               help="JSON file with percentile calculations."/>
+        
+        <param name="risk_categories" type="data" format="json" label="Risk categories"
+               help="JSON file with risk category interpretations."/>
+        
+        <param name="recommendations_input" type="data" format="json" label="Recommendations"
+               help="JSON file with lifestyle recommendations."/>
+        
+        <param name="include_radar_chart" type="boolean" checked="true"
+               label="Include radar chart"
+               help="Generate a radar chart visualization of risk profile."/>
+        
+        <param name="include_lifestyle_advice" type="boolean" checked="true"
+               label="Include lifestyle advice"
+               help="Include lifestyle modification recommendations in the report."/>
+    </inputs>
+    <outputs>
+        <data name="output_html" format="html" label="${tool.name} on ${on_string}: Report"/>
+        <data name="output_json" format="json" label="${tool.name} on ${on_string}: Summary"/>
+        <data name="output_radar" format="svg" label="${tool.name} on ${on_string}: Radar Chart">
+            <filter>include_radar_chart</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="3">
+            <param name="prs_summary" value="test_prs_summary.json"/>
+            <param name="percentiles" value="test_percentiles.json"/>
+            <param name="risk_categories" value="test_categories.json"/>
+            <param name="recommendations_input" value="test_recommendations.json"/>
+            <param name="include_radar_chart" value="true"/>
+            <output name="output_html" file="expected_report.html" compare="sim_size" delta="500"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**PRS Report Generator**
+
+Generates comprehensive HTML reports and visualizations for polygenic risk score results.
+
+**Features**
+
+1. **HTML Report**: Professional clinical-style report with:
+   - Risk category visualization
+   - Percentile bar chart
+   - Color-coded risk indicators
+   - Lifestyle recommendations
+
+2. **Radar Chart**: Visual overview of multi-disease risk profile
+
+3. **Summary JSON**: Machine-readable summary for downstream processing
+
+**Inputs**
+
+- PRS summary from PRSice-2
+- Percentile calculations
+- Risk category interpretations
+- Lifestyle recommendations
+
+**Outputs**
+
+- HTML report for clinical review
+- JSON summary for integration
+- SVG radar chart for visualization
+
+**Clinical Disclaimer**
+
+This report is for research purposes only. Results should be interpreted by qualified healthcare professionals in the context of family history, clinical findings, and other risk factors.
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1136/bmj.n393</citation>
+        <citation type="doi">10.1038/s41591-022-02035-7</citation>
+    </citations>
+</tool>

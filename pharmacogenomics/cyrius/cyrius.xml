@@ -1,0 +1,221 @@
+<tool id="cyrius" name="Cyrius" version="1.1.1+galaxy0" profile="21.05">
+    <description>Accurate CYP2D6 genotyping from whole-genome sequencing data</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.1.1</token>
+        <token name="@GALAXY_VERSION@">galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">cyrius</requirement>
+        <container type="docker">omniverse/cyrius:1.1.1</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        ## 创建输入文件列表
+        #set $input_files = []
+        #for $sample in $input_samples
+            #silent $input_files.append(str($sample.input_bam))
+        #end for
+        
+        ## 为每个 BAM 文件创建符号链接和索引
+        mkdir -p inputs &&
+        #for $i, $sample in enumerate($input_samples)
+            ln -s '${sample.input_bam}' inputs/sample_${i}.bam &&
+            #if $sample.input_bam.metadata.bam_index:
+                ln -s '${sample.input_bam.metadata.bam_index}' inputs/sample_${i}.bam.bai &&
+            #end if
+        #end for
+        
+        ## 创建 manifest 文件
+        echo "#Sample_ID	BAM_Path" > manifest.txt &&
+        #for $i, $sample in enumerate($input_samples)
+            #if str($sample.sample_id) != ""
+                echo "${sample.sample_id}	inputs/sample_${i}.bam" >> manifest.txt &&
+            #else
+                echo "sample_${i}	inputs/sample_${i}.bam" >> manifest.txt &&
+            #end if
+        #end for
+        
+        mkdir -p output &&
+        
+        star_caller.py
+            --manifest manifest.txt
+            --genome '$reference_genome'
+            --outDir output
+            --prefix result
+            --threads \${GALAXY_SLOTS:-4}
+            #if $cn_neutral
+                --cnNeutral
+            #end if
+        
+        && mv output/result.tsv '$cyp2d6_genotype'
+        #if $output_json
+            && mv output/result.json '$cyp2d6_json'
+        #end if
+    ]]></command>
+    <inputs>
+        <repeat name="input_samples" title="Input Samples" min="1">
+            <param name="input_bam" type="data" format="bam,cram" label="Input BAM/CRAM file" help="Aligned to GRCh37 or GRCh38 reference genome. Must have index file."/>
+            <param name="sample_id" type="text" optional="true" label="Sample ID" help="Optional sample identifier. If not provided, will use filename."/>
+        </repeat>
+        
+        <param name="reference_genome" type="select" label="Reference genome" help="Must match the alignment reference. Based on PMID:33462347, both references are supported.">
+            <option value="38" selected="true">GRCh38 (hg38) - Recommended</option>
+            <option value="37">GRCh37 (hg19)</option>
+        </param>
+        
+        <param name="cn_neutral" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Assume copy number neutral" help="Skip copy number analysis. Only use if sample is known to have two copies."/>
+        
+        <param name="output_json" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Output JSON format" help="Generate machine-readable JSON output in addition to TSV."/>
+    </inputs>
+    <outputs>
+        <data name="cyp2d6_genotype" format="tabular" label="${tool.name} on ${on_string}: CYP2D6 Genotype"/>
+        
+        <data name="cyp2d6_json" format="json" label="${tool.name} on ${on_string}: CYP2D6 JSON">
+            <filter>output_json</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <repeat name="input_samples">
+                <param name="input_bam" value="test_wgs.bam"/>
+                <param name="sample_id" value="test_sample"/>
+            </repeat>
+            <param name="reference_genome" value="38"/>
+            <output name="cyp2d6_genotype" file="expected_cyrius.tsv" compare="sim_size"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**Cyrius - Accurate CYP2D6 Genotyping from WGS**
+=================================================
+
+Cyrius is a specialized bioinformatics tool for accurately genotyping CYP2D6 using 
+whole-genome sequencing (WGS) data. Developed by Illumina, it achieves superior 
+accuracy compared to other methods by specifically handling the complex structural 
+variations in the CYP2D6 locus.
+
+**Overview**
+------------
+
+CYP2D6 is one of the most clinically important pharmacogenes, responsible for 
+metabolizing approximately 25% of clinically used drugs. Genotyping CYP2D6 is 
+challenging due to:
+
+- High sequence similarity with pseudogene CYP2D7
+- Common structural variants (gene deletions, duplications, hybrids)
+- Complex haplotype patterns
+
+Cyrius addresses these challenges using:
+
+1. **Depth-based Copy Number Detection**: Accurate CNV calling using read depth
+2. **Paralog-Specific Alignment**: Distinguishes CYP2D6 from CYP2D7
+3. **Haplotype Assignment**: Assigns variants to specific gene copies
+
+**Clinical Importance**
+-----------------------
+
+Based on CPIC guidelines (PMID: 34216446):
+
+| Phenotype | Activity Score | Drug Response |
+|-----------|---------------|---------------|
+| Ultra-rapid | >2.25 | Increased metabolism |
+| Normal | 1.25-2.25 | Normal metabolism |
+| Intermediate | >0 to <1.25 | Reduced metabolism |
+| Poor | 0 | No/minimal metabolism |
+
+**Best Practice Parameters**
+----------------------------
+
+Based on PMID:33462347 (Cyrius publication):
+
+- **Coverage**: Minimum 20x WGS coverage recommended
+- **Reference**: Both GRCh37 and GRCh38 supported
+- **Data Type**: WGS strongly recommended (WES has limitations)
+
+**Benchmark Performance**
+-------------------------
+
+From the original Cyrius publication (PMID: 33462347):
+
+- **99.3% accuracy** against GeT-RM truth genotypes
+- **Superior to other methods**: 84-86.8% for competitors
+- **Accurate SV detection**: Properly identifies *5, *13, *68 alleles
+
+According to benchmarking study (PMID: 39123290):
+- Cyrius achieved **highest concordance rates** for CYP2D6
+- Robust performance across different sequencing depths
+- Best tool for consensus-based calling
+
+**Detected Structural Variants**
+--------------------------------
+
+Cyrius accurately detects:
+
+| SV Type | Star Alleles | Clinical Significance |
+|---------|--------------|----------------------|
+| Gene deletion | *5 | Poor metabolizer |
+| Gene duplication | *1xN, *2xN, etc. | Ultra-rapid (if functional) |
+| CYP2D6/CYP2D7 hybrid | *13, *68 | Variable function |
+| Tandem arrangements | Various | Complex phenotypes |
+
+**Output Format**
+-----------------
+
+The genotype report contains:
+
+| Column | Description |
+|--------|-------------|
+| Sample | Sample identifier |
+| Genotype | Star allele diplotype (e.g., *1/*4) |
+| Filter | QC status (PASS or specific issue) |
+| Allele1 | First allele with CNV status |
+| Allele2 | Second allele with CNV status |
+| Total_CN | Total CYP2D6 copy number |
+
+**Workflow Integration**
+------------------------
+
+Recommended ensemble approach (PMID: 39123290)::
+
+    BAM (WGS, GRCh38)
+            │
+    ┌───────┴───────┐
+    │               │
+    ▼               ▼
+  Cyrius        Stargazer
+    │               │
+    └───────┬───────┘
+            │
+            ▼
+    Consensus Diplotype
+            │
+            ▼
+       PharmCAT
+            │
+            ▼
+    Clinical Recommendations
+
+**Limitations**
+---------------
+
+- Requires WGS data (WES has limited coverage of intronic regions)
+- Some rare alleles may not be detected
+- Samples with unusual CNV patterns may be marked as uncertain
+
+**Citation**
+------------
+
+If you use Cyrius in your research, please cite:
+
+Chen X, Shen F, Gonzaludo N, et al. Cyrius: accurate CYP2D6 genotyping using 
+whole-genome sequencing data. Pharmacogenomics J. 2021;21:251-261. 
+doi:10.1038/s41397-020-00205-5
+
+**Links**
+---------
+
+- GitHub: https://github.com/Illumina/Cyrius
+- Illumina DRAGEN: https://www.illumina.com/products/by-type/informatics-products/dragen-bio-it-platform.html
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1038/s41397-020-00205-5</citation>
+    </citations>
+</tool>

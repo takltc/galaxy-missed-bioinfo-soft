@@ -1,0 +1,269 @@
+<tool id="cpic_interpreter" name="CPIC Interpreter" version="1.0.0+galaxy0" profile="21.05">
+    <description>Clinical Pharmacogenetics Implementation Consortium guideline interpretation</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.0.0</token>
+        <token name="@GALAXY_VERSION@">galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">cpic-interpreter</requirement>
+        <container type="docker">omniverse/cpic-interpreter:1.0.0</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        ## 创建输入文件符号链接
+        ln -s '$diplotypes' diplotypes.tsv &&
+        #if $cyp2d6_calls
+            ln -s '$cyp2d6_calls' cyp2d6.tsv &&
+        #end if
+        #if $cyp2c19_calls
+            ln -s '$cyp2c19_calls' cyp2c19.tsv &&
+        #end if
+        
+        mkdir -p output &&
+        
+        cpic-interpret
+            --diplotypes diplotypes.tsv
+            #if $cyp2d6_calls
+                --cyp2d6 cyp2d6.tsv
+            #end if
+            #if $cyp2c19_calls
+                --cyp2c19 cyp2c19.tsv
+            #end if
+            --output-dir output
+            --output-prefix result
+            --population '$population'
+            #if $include_level_a
+                --include-level-a
+            #end if
+            #if $include_level_b
+                --include-level-b
+            #end if
+            #if $include_level_c
+                --include-level-c
+            #end if
+            #if $include_fda_table
+                --include-fda-table
+            #end if
+            #if $high_priority_only
+                --high-priority-only
+            #end if
+            --cpic-version '$cpic_version'
+            --output-format '$output_format'
+        
+        && mv output/result.recommendations.json '$drug_recommendations'
+        && mv output/result.report.html '$clinical_report'
+        #if $output_phenotypes
+            && mv output/result.phenotypes.tsv '$phenotype_summary'
+        #end if
+    ]]></command>
+    <inputs>
+        <param name="diplotypes" type="data" format="json" label="Diplotype calls" help="PharmCAT or similar tool output containing gene diplotypes (e.g., CYP2D6 *1/*4)"/>
+        
+        <param name="cyp2d6_calls" type="data" format="tabular,tsv" optional="true" label="CYP2D6 star allele calls (optional)" help="Additional CYP2D6 calls from Stargazer/Cyrius for consensus calling"/>
+        
+        <param name="cyp2c19_calls" type="data" format="tabular,tsv" optional="true" label="CYP2C19 star allele calls (optional)" help="Additional CYP2C19 calls for consensus calling"/>
+        
+        <param name="population" type="select" label="Patient population" help="Population background affects allele frequency context. Based on PMID:36477686 on population-specific PGx.">
+            <option value="EAS" selected="true">East Asian (EAS) - Higher CYP2C19 PM frequency</option>
+            <option value="EUR">European (EUR)</option>
+            <option value="AFR">African (AFR)</option>
+            <option value="SAS">South Asian (SAS)</option>
+            <option value="AMR">Admixed American (AMR)</option>
+        </param>
+        
+        <param name="cpic_version" type="select" label="CPIC guideline version" help="Select the CPIC guideline version to use for interpretation.">
+            <option value="2024.01" selected="true">2024.01 (Latest)</option>
+            <option value="2023.06">2023.06</option>
+            <option value="2023.01">2023.01</option>
+        </param>
+        
+        <section name="evidence_levels" title="Evidence Level Filtering" expanded="true">
+            <param name="include_level_a" type="boolean" truevalue="true" falsevalue="false" checked="true" label="Include Level A evidence" help="Strong gene-drug relationships with prescribing guidance"/>
+            
+            <param name="include_level_b" type="boolean" truevalue="true" falsevalue="false" checked="true" label="Include Level B evidence" help="Moderate evidence, consider action"/>
+            
+            <param name="include_level_c" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Include Level C evidence" help="Limited evidence, optional action"/>
+            
+            <param name="include_fda_table" type="boolean" truevalue="true" falsevalue="false" checked="true" label="Include FDA Table of PGx Associations" help="Include drugs from FDA PGx biomarker table"/>
+        </section>
+        
+        <param name="high_priority_only" type="boolean" truevalue="true" falsevalue="false" checked="false" label="High priority genes only" help="Limit to CYP2D6, CYP2C19, DPYD, TPMT, NUDT15, SLCO1B1"/>
+        
+        <param name="output_format" type="select" label="Report output format">
+            <option value="html" selected="true">HTML (Interactive report)</option>
+            <option value="pdf">PDF (Printable report)</option>
+        </param>
+        
+        <param name="output_phenotypes" type="boolean" truevalue="true" falsevalue="false" checked="true" label="Output phenotype summary" help="Generate separate phenotype classification file"/>
+    </inputs>
+    <outputs>
+        <data name="drug_recommendations" format="json" label="${tool.name} on ${on_string}: Drug Recommendations"/>
+        
+        <data name="clinical_report" format="html" label="${tool.name} on ${on_string}: Clinical Report">
+            <change_format>
+                <when input="output_format" value="pdf" format="pdf"/>
+            </change_format>
+        </data>
+        
+        <data name="phenotype_summary" format="tabular" label="${tool.name} on ${on_string}: Phenotype Summary">
+            <filter>output_phenotypes</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="3">
+            <param name="diplotypes" value="test_diplotypes.tsv"/>
+            <param name="population" value="EAS"/>
+            <param name="include_level_a" value="true"/>
+            <param name="include_level_b" value="true"/>
+            <param name="output_phenotypes" value="true"/>
+            <output name="drug_recommendations" file="expected_recommendations.json" compare="sim_size"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**CPIC Interpreter - Pharmacogenomics Guideline Interpretation**
+================================================================
+
+This tool interprets pharmacogenomic diplotypes according to Clinical Pharmacogenetics 
+Implementation Consortium (CPIC) guidelines, providing actionable drug dosing 
+recommendations for clinical use.
+
+**Overview**
+------------
+
+CPIC provides peer-reviewed, evidence-based guidelines for gene-drug pairs where 
+genetic information can be used to optimize drug therapy. This interpreter:
+
+- Translates diplotypes to metabolizer phenotypes
+- Maps phenotypes to drug-specific recommendations
+- Generates clinical reports with dosing guidance
+- Supports 34 genes and 164+ drug-gene pairs
+
+**Clinical Evidence Levels**
+----------------------------
+
+Based on CPIC documentation (PMID: 34216446):
+
+| Level | Description | Action |
+|-------|-------------|--------|
+| A | Strong evidence, prescribing action recommended | Actionable |
+| A/B | Strong-moderate evidence | Actionable |
+| B | Moderate evidence, consider action | Actionable |
+| B/C | Moderate-limited evidence | Consider |
+| C | Limited evidence, optional action | Informative |
+| D | Evidence against gene-drug association | No action |
+
+**Supported Genes (21 CPIC Genes)**
+-----------------------------------
+
+High Priority (FDA Table):
+- **CYP2D6**: Codeine, tramadol, antidepressants, antipsychotics
+- **CYP2C19**: Clopidogrel, PPIs, voriconazole, SSRIs
+- **CYP2C9/VKORC1**: Warfarin dosing
+- **DPYD**: Fluoropyrimidines (5-FU, capecitabine)
+- **TPMT/NUDT15**: Thiopurines (azathioprine, mercaptopurine)
+- **SLCO1B1**: Simvastatin myopathy risk
+- **HLA-B**: Carbamazepine, abacavir hypersensitivity
+- **G6PD**: Rasburicase, certain antimalarials
+
+Additional Genes:
+- CYP3A5 (tacrolimus), CYP1A2 (caffeine, clozapine)
+- CYP2B6 (efavirenz), CYP4F2 (warfarin)
+- UGT1A1 (irinotecan), IFNL3 (peginterferon)
+- NAT2 (isoniazid), ABCG2 (rosuvastatin)
+- RYR1/CACNA1S (malignant hyperthermia)
+
+**Population Considerations**
+-----------------------------
+
+Based on PMID:36477686, population-specific allele frequencies affect:
+
+| Population | Key Considerations |
+|------------|-------------------|
+| EAS | Higher CYP2C19 PM (14%), NUDT15 risk alleles |
+| EUR | Higher CYP2D6 PM (7%) |
+| AFR | Unique CYP2D6 alleles (*17, *29), G6PD variants |
+| SAS | Intermediate frequencies |
+| AMR | Mixed frequencies |
+
+**Input Requirements**
+----------------------
+
+The diplotype input should contain:
+
+| Column | Description |
+|--------|-------------|
+| gene | Gene symbol (e.g., CYP2D6) |
+| diplotype | Star allele notation (e.g., *1/*4) |
+| phenotype | Optional pre-assigned phenotype |
+| activity_score | Optional activity score |
+
+**Output Format**
+-----------------
+
+The drug recommendations JSON contains:
+
+.. code-block:: json
+
+    {
+        "patient_id": "sample_001",
+        "analysis_date": "2024-01-15",
+        "phenotypes": {
+            "CYP2D6": {
+                "diplotype": "*1/*4",
+                "phenotype": "Intermediate Metabolizer",
+                "activity_score": 1.0
+            }
+        },
+        "recommendations": [
+            {
+                "drug": "codeine",
+                "gene": "CYP2D6",
+                "recommendation": "Use label recommended age- or weight-specific dosing",
+                "classification": "No recommendation",
+                "evidence_level": "A",
+                "pmid": "23827100"
+            }
+        ]
+    }
+
+**Workflow Integration**
+------------------------
+
+Recommended pipeline::
+
+    VCF → PharmCAT → Diplotypes
+              │
+              ├── Stargazer → CYP2D6 consensus
+              │
+              └── CPIC Interpreter → Recommendations
+                        │
+                        ↓
+                  PGx Report
+
+**Limitations**
+---------------
+
+- Novel or rare alleles may not be in CPIC database
+- Some gene combinations (e.g., CYP2D6 + CYP3A4) not fully addressed
+- Clinical context should always be considered
+
+**Citation**
+------------
+
+If you use CPIC guidelines, please cite:
+
+Relling MV, Klein TE. CPIC: Clinical Pharmacogenetics Implementation Consortium 
+of the Pharmacogene Variation Consortium. Clin Pharmacol Ther. 2011;89(3):464-467.
+
+**Links**
+---------
+
+- CPIC: https://cpicpgx.org/
+- PharmGKB: https://www.pharmgkb.org/
+- PharmVar: https://www.pharmvar.org/
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1038/clpt.2010.279</citation>
+        <citation type="doi">10.1002/cpt.1417</citation>
+        <citation type="doi">10.1002/cpt.2449</citation>
+    </citations>
+</tool>

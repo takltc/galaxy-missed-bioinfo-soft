@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<toolbox>
+    <section id="pharmacogenomics" name="Pharmacogenomics">
+        <tool file="pharmacogenomics/pharmcat/pharmcat.xml"/>
+        <tool file="pharmacogenomics/stargazer/stargazer.xml"/>
+        <tool file="pharmacogenomics/cyrius/cyrius.xml"/>
+        <tool file="pharmacogenomics/cpic_interpreter/cpic_interpreter.xml"/>
+        <tool file="pharmacogenomics/dpwg_interpreter/dpwg_interpreter.xml"/>
+        <tool file="pharmacogenomics/pgx_report/pgx_report.xml"/>
+    </section>
+</toolbox>

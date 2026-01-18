@@ -1,0 +1,219 @@
+<tool id="stargazer" name="Stargazer" version="2.0.4+galaxy0" profile="21.05">
+    <description>Star allele caller for pharmacogenes from NGS or SNP array data</description>
+    <macros>
+        <token name="@TOOL_VERSION@">2.0.4</token>
+        <token name="@GALAXY_VERSION@">galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">stargazer</requirement>
+        <container type="docker">omniverse/stargazer:2.0.4</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        ## 为输入文件创建符号链接，确保索引文件可访问
+        #if str($input_type.input_selector) == "vcf"
+            ln -s '$input_type.input_vcf' input.vcf &&
+            #if $input_type.input_vcf.metadata.tabix_index:
+                ln -s '$input_type.input_vcf.metadata.tabix_index' input.vcf.tbi &&
+            #end if
+        #else
+            ln -s '$input_type.input_bam' input.bam &&
+            ln -s '$input_type.input_bam.metadata.bam_index' input.bam.bai &&
+        #end if
+        
+        mkdir -p output &&
+        
+        stargazer
+            --target_gene '$target_gene'
+            --data_type '$data_type'
+            #if str($input_type.input_selector) == "vcf"
+                --vcf input.vcf
+            #else
+                --gdf '$input_type.input_gdf'
+            #end if
+            --output_dir output
+            --output_prefix result
+            #if str($reference_genome) != ""
+                --reference_genome '$reference_genome'
+            #end if
+            #if str($control_gene) != ""
+                --control_gene '$control_gene'
+            #end if
+            #if $no_cnv_filter
+                --no_cnv_filter
+            #end if
+            #if $phase
+                --phase
+            #end if
+        
+        && mv output/result.stargazer-genotype.txt '$genotype_report'
+        #if $output_detailed
+            && mv output/result.stargazer-genotype-all.txt '$genotype_detailed'
+        #end if
+    ]]></command>
+    <inputs>
+        <param name="target_gene" type="select" label="Target pharmacogene" help="Select the CYP gene to genotype. Based on PMID:29858675 - CYP2D6 is the most clinically important with ~25% of prescription drug metabolism.">
+            <option value="CYP2D6" selected="true">CYP2D6 - Most clinically important (~25% prescription drugs)</option>
+            <option value="CYP2C19">CYP2C19 - Important for clopidogrel, PPIs</option>
+            <option value="CYP2C9">CYP2C9 - Warfarin metabolism</option>
+            <option value="CYP3A5">CYP3A5 - Tacrolimus metabolism</option>
+            <option value="CYP2B6">CYP2B6 - Efavirenz metabolism</option>
+            <option value="CYP2A6">CYP2A6 - Nicotine metabolism</option>
+            <option value="CYP1A2">CYP1A2 - Caffeine, clozapine</option>
+            <option value="CYP4F2">CYP4F2 - Warfarin sensitivity</option>
+        </param>
+        
+        <param name="data_type" type="select" label="Input data type" help="Select the sequencing technology used. Based on PMID:39123290 benchmarking study, WGS provides best accuracy.">
+            <option value="wgs" selected="true">WGS - Whole Genome Sequencing (recommended)</option>
+            <option value="wes">WES - Whole Exome Sequencing</option>
+            <option value="ts">TS - Targeted Sequencing</option>
+        </param>
+        
+        <conditional name="input_type">
+            <param name="input_selector" type="select" label="Input file type">
+                <option value="vcf" selected="true">VCF file</option>
+                <option value="bam">BAM file with GDF</option>
+            </param>
+            <when value="vcf">
+                <param name="input_vcf" type="data" format="vcf,vcf_bgzip" label="Input VCF file" help="VCF file containing variants in the target gene region. Must be aligned to GRCh37 or GRCh38."/>
+            </when>
+            <when value="bam">
+                <param name="input_bam" type="data" format="bam" label="Input BAM file" help="BAM file aligned to reference genome."/>
+                <param name="input_gdf" type="data" format="tabular" label="Gene depth file (GDF)" help="Pre-computed depth file for copy number estimation."/>
+            </when>
+        </conditional>
+        
+        <param name="reference_genome" type="select" label="Reference genome" help="Must match the alignment reference. GRCh38 is recommended per CPIC 2024 guidelines.">
+            <option value="GRCh38" selected="true">GRCh38 (hg38) - Recommended</option>
+            <option value="GRCh37">GRCh37 (hg19)</option>
+        </param>
+        
+        <param name="control_gene" type="select" optional="true" label="Control gene for copy number normalization" help="Gene used for copy number normalization. VDR is recommended for CYP2D6.">
+            <option value="">Default (gene-specific)</option>
+            <option value="VDR">VDR - Recommended for CYP2D6</option>
+            <option value="EGFR">EGFR</option>
+        </param>
+        
+        <param name="no_cnv_filter" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Disable CNV filtering" help="Disable filtering of samples with uncertain copy number."/>
+        
+        <param name="phase" type="boolean" truevalue="true" falsevalue="false" checked="true" label="Perform phasing" help="Phase variants into haplotypes. Recommended for accurate star allele calling."/>
+        
+        <param name="output_detailed" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Output detailed genotype file" help="Generate comprehensive output with all allele combinations considered."/>
+    </inputs>
+    <outputs>
+        <data name="genotype_report" format="tabular" label="${tool.name} on ${on_string}: Star Allele Genotype"/>
+        
+        <data name="genotype_detailed" format="tabular" label="${tool.name} on ${on_string}: Detailed Genotype">
+            <filter>output_detailed</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="target_gene" value="CYP2D6"/>
+            <param name="data_type" value="wgs"/>
+            <param name="input_selector" value="vcf"/>
+            <param name="input_vcf" value="test_cyp2d6.vcf"/>
+            <param name="reference_genome" value="GRCh38"/>
+            <output name="genotype_report" file="expected_stargazer.txt" compare="sim_size"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**Stargazer - Pharmacogene Star Allele Caller**
+================================================
+
+Stargazer is a bioinformatics tool for calling star alleles (haplotypes) in pharmacogenes 
+using data from next-generation sequencing (NGS) or SNP arrays.
+
+**Overview**
+------------
+
+Stargazer identifies star alleles by detecting:
+- Single nucleotide variants (SNVs)
+- Small insertions/deletions (indels)
+- Structural variants (SVs) including gene deletions, duplications, and hybrids
+
+The tool uses the PharmVar database for star allele definitions and is particularly 
+optimized for the highly polymorphic CYP2D6 gene.
+
+**Clinical Importance**
+-----------------------
+
+Based on CPIC guidelines (PMID: 34216446), pharmacogene genotyping enables:
+- Identification of poor, intermediate, normal, and ultra-rapid metabolizers
+- Personalized drug dosing recommendations
+- Avoidance of adverse drug reactions
+
+**Best Practice Parameters**
+----------------------------
+
+Based on literature review:
+
+- **Reference Genome**: GRCh38 recommended (PMID: 39123290)
+- **Coverage**: Minimum 20x for reliable calling (30x+ preferred)
+- **Data Type**: WGS provides best accuracy for structural variant detection
+- **Phasing**: Enabled for accurate haplotype assignment
+
+**Benchmark Performance**
+-------------------------
+
+According to Twesigomwe et al. (PMID: 32600403), Stargazer achieves:
+- 84% concordance with truth genotypes for CYP2D6
+- Accurate detection of common star alleles (*1, *2, *4, *10, *41)
+- Improved accuracy when combined with Cyrius for CNV detection
+
+**Supported Genes**
+-------------------
+
+- CYP2D6: Metabolizes ~25% of prescription drugs
+- CYP2C19: Clopidogrel, proton pump inhibitors
+- CYP2C9: Warfarin, NSAIDs
+- CYP3A5: Tacrolimus, cyclosporine
+- CYP2B6: Efavirenz, methadone
+- CYP2A6: Nicotine metabolism
+- CYP1A2: Caffeine, clozapine
+- CYP4F2: Vitamin K cycle
+
+**Output Format**
+-----------------
+
+The genotype report contains:
+
+| Column | Description |
+|--------|-------------|
+| Sample | Sample identifier |
+| Gene | Target gene |
+| Diplotype | Star allele diplotype (e.g., *1/*4) |
+| Phenotype | Predicted metabolizer status |
+| CNV | Copy number variation detected |
+
+**Workflow Integration**
+------------------------
+
+Recommended pipeline::
+
+    VCF (GRCh38) → Stargazer → Star Alleles
+                       ↓
+                  Cyrius CNV → Combined Diplotype
+                       ↓
+                  PharmCAT → Clinical Recommendations
+
+**Citation**
+------------
+
+If you use Stargazer in your research, please cite:
+
+Lee SB, Wheeler MM, Patterson K, et al. Stargazer: a software tool for calling 
+star alleles from next-generation sequencing data using CYP2D6 as a model.
+Genet Med. 2019;21(2):361-372. doi:10.1038/s41436-018-0054-0
+
+**Links**
+---------
+
+- GitHub: https://github.com/sbslee/stargazer
+- Documentation: https://stargazer.gs.washington.edu/
+- PharmVar: https://www.pharmvar.org/
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1038/s41436-018-0054-0</citation>
+        <citation type="doi">10.1002/cpt.2173</citation>
+    </citations>
+</tool>

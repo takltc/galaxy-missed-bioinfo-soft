@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<toolbox>
+    <section id="prs" name="Polygenic Risk Score">
+        <tool file="prs_percentile/prs_percentile.xml" />
+    </section>
+</toolbox>

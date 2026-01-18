@@ -1,0 +1,248 @@
+<tool id="hla_consensus" name="HLA Consensus Typing" version="1.0.0+galaxy0" profile="21.05">
+    <description>Combine and validate HLA typing results from multiple tools</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.0.0</token>
+        <token name="@VERSION_SUFFIX@">+galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="3.11">python</requirement>
+        <container type="docker">hla-consensus:1.0.0</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+python3 << 'EOF'
+import json
+import sys
+from collections import defaultdict
+
+def parse_hla_allele(allele_str):
+    """Parse HLA allele string to standardized format."""
+    if not allele_str or allele_str in ['NA', '-', 'Not typed', '']:
+        return None
+    allele = allele_str.strip()
+    if not allele.startswith('HLA-'):
+        if ':' in allele:
+            return allele
+        return None
+    return allele.replace('HLA-', '')
+
+def get_resolution(allele, target_fields):
+    """Truncate allele to specified field resolution."""
+    if not allele:
+        return None
+    parts = allele.split(':')
+    return ':'.join(parts[:target_fields]) if len(parts) >= target_fields else allele
+
+def normalize_locus(locus):
+    """Normalize locus name."""
+    locus = locus.upper().replace('HLA-', '').replace('HLA_', '')
+    return locus
+
+def load_typing_results(files):
+    """Load typing results from JSON files."""
+    all_results = []
+    for f in files:
+        try:
+            with open(f, 'r') as fp:
+                data = json.load(fp)
+                all_results.append(data)
+        except Exception as e:
+            print(f"Warning: Could not load {f}: {e}", file=sys.stderr)
+    return all_results
+
+def calculate_consensus(all_results, min_concordance, resolution_fields):
+    """Calculate consensus typing from multiple tools."""
+    locus_votes = defaultdict(lambda: defaultdict(list))
+    
+    for result in all_results:
+        tool = result.get('tool', 'unknown')
+        typing = result.get('typing_results', {})
+        
+        for locus, data in typing.items():
+            norm_locus = normalize_locus(locus)
+            allele1 = parse_hla_allele(data.get('allele1', ''))
+            allele2 = parse_hla_allele(data.get('allele2', ''))
+            
+            if allele1:
+                allele1_res = get_resolution(allele1, resolution_fields)
+                locus_votes[norm_locus]['allele1'].append((allele1_res, tool))
+            if allele2:
+                allele2_res = get_resolution(allele2, resolution_fields)
+                locus_votes[norm_locus]['allele2'].append((allele2_res, tool))
+    
+    consensus = {}
+    confidence_scores = {}
+    
+    for locus, votes in locus_votes.items():
+        locus_result = {}
+        locus_confidence = {}
+        
+        for allele_pos in ['allele1', 'allele2']:
+            if allele_pos not in votes:
+                continue
+            
+            allele_votes = votes[allele_pos]
+            vote_counts = defaultdict(list)
+            for allele, tool in allele_votes:
+                vote_counts[allele].append(tool)
+            
+            sorted_votes = sorted(vote_counts.items(), key=lambda x: len(x[1]), reverse=True)
+            
+            if sorted_votes:
+                best_allele, supporting_tools = sorted_votes[0]
+                concordance = len(supporting_tools)
+                
+                if concordance >= min_concordance:
+                    locus_result[allele_pos] = best_allele
+                    locus_confidence[allele_pos] = {
+                        'concordance': concordance,
+                        'total_tools': len(allele_votes),
+                        'supporting_tools': supporting_tools,
+                        'confidence': concordance / len(all_results) if all_results else 0
+                    }
+                else:
+                    locus_result[allele_pos] = best_allele
+                    locus_confidence[allele_pos] = {
+                        'concordance': concordance,
+                        'total_tools': len(allele_votes),
+                        'supporting_tools': supporting_tools,
+                        'confidence': concordance / len(all_results) if all_results else 0,
+                        'warning': f'Low concordance: only {concordance} tools agree'
+                    }
+        
+        if locus_result:
+            consensus[locus] = locus_result
+            confidence_scores[locus] = locus_confidence
+    
+    return consensus, confidence_scores
+
+input_files = [
+#for $f in $hla_results
+    '$f',
+#end for
+]
+
+results = load_typing_results(input_files)
+
+if not results:
+    print("Error: No valid input files", file=sys.stderr)
+    sys.exit(1)
+
+resolution_map = {'2-field': 2, '4-field': 4, '6-field': 6}
+resolution_fields = resolution_map.get('$resolution', 4)
+min_concordance = int('$min_concordance')
+
+consensus, confidence = calculate_consensus(results, min_concordance, resolution_fields)
+
+output = {
+    'consensus_typing': consensus,
+    'confidence_scores': confidence,
+    'input_tools': [r.get('tool', 'unknown') for r in results],
+    'parameters': {
+        'min_concordance': min_concordance,
+        'resolution': '$resolution'
+    }
+}
+
+with open('$consensus_result', 'w') as f:
+    json.dump(output, f, indent=2)
+
+with open('$confidence_output', 'w') as f:
+    f.write("Locus\tAllele1\tAllele2\tAllele1_Confidence\tAllele2_Confidence\tWarnings\n")
+    for locus in sorted(consensus.keys()):
+        alleles = consensus[locus]
+        conf = confidence.get(locus, {})
+        
+        a1 = alleles.get('allele1', 'NA')
+        a2 = alleles.get('allele2', 'NA')
+        c1 = conf.get('allele1', {}).get('confidence', 0)
+        c2 = conf.get('allele2', {}).get('confidence', 0)
+        
+        warnings = []
+        if 'warning' in conf.get('allele1', {}):
+            warnings.append(conf['allele1']['warning'])
+        if 'warning' in conf.get('allele2', {}):
+            warnings.append(conf['allele2']['warning'])
+        
+        f.write(f"{locus}\t{a1}\t{a2}\t{c1:.2f}\t{c2:.2f}\t{'; '.join(warnings)}\n")
+
+print(f"Consensus typing completed for {len(consensus)} loci from {len(results)} tools")
+EOF
+    ]]></command>
+    <inputs>
+        <param name="hla_results" type="data" format="json" multiple="true"
+               label="HLA typing results (JSON)"
+               help="JSON output files from HLA typing tools (HLA-HD, OptiType, HLA-LA, etc.)"/>
+        
+        <param name="min_concordance" type="integer" min="1" max="10" value="2"
+               label="Minimum concordance"
+               help="Minimum number of tools that must agree for a confident call. Default: 2"/>
+        
+        <param name="resolution" type="select" label="Output resolution">
+            <option value="2-field">2-field (e.g., A*02:01)</option>
+            <option value="4-field" selected="true">4-field (e.g., A*02:01:01:01)</option>
+            <option value="6-field">6-field (full resolution)</option>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="consensus_result" format="json" label="${tool.name} on ${on_string}: Consensus"/>
+        <data name="confidence_output" format="tabular" label="${tool.name} on ${on_string}: Confidence Scores"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="hla_results" value="hlahd_result.json,optitype_result.json"/>
+            <param name="min_concordance" value="2"/>
+            <output name="consensus_result" file="expected_consensus.json" compare="sim_size" delta="100"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**HLA Consensus Typing**
+
+整合多个 HLA 分型工具的结果，通过投票机制确定最可靠的 HLA 分型。
+
+**工作原理**
+
+1. 读取多个 HLA 分型工具的 JSON 输出
+2. 对每个 HLA 位点的每个等位基因进行投票
+3. 选择获得最多票数的等位基因作为共识结果
+4. 计算置信度分数
+
+**输入要求**
+
+JSON 格式的 HLA 分型结果，包含以下结构:
+```json
+{
+  "tool": "HLA-HD",
+  "typing_results": {
+    "A": {"allele1": "A*02:01", "allele2": "A*24:02"},
+    "B": {"allele1": "B*35:01", "allele2": "B*44:02"}
+  }
+}
+```
+
+**参数说明**
+
+- **最小一致性**: 要求至少多少个工具给出相同结果才被接受
+- **分辨率**: 输出等位基因的字段数
+
+**输出文件**
+
+1. **Consensus (JSON)**: 完整的共识分型结果和元数据
+2. **Confidence Scores (TSV)**: 每个位点的置信度分数表格
+
+**临床意义**
+
+使用多个工具的共识结果可以提高分型的可靠性，特别是对于:
+- 复杂的 HLA 区域
+- 新型等位基因
+- 低覆盖度样本
+    ]]></help>
+    <citations>
+        <citation type="bibtex">
+@misc{hla_consensus,
+  title={HLA Consensus Typing Tool},
+  author={Galaxy Tools},
+  year={2024}
+}
+        </citation>
+    </citations>
+</tool>

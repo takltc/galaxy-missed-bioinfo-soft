@@ -1,0 +1,78 @@
+<tool id="custom/prs_percentile/1.0.0" name="PRS Percentile Calculator" version="1.0.0+galaxy0" profile="21.05">
+    <description>Calculate population percentiles for PRS scores</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.0.0</token>
+    </macros>
+    <requirements>
+        <container type="docker">prs_percentile:1.0.0</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+python /usr/local/bin/prs_percentile.py
+    --prs '$prs_scores'
+    --population '$population'
+    --reference-size $reference_size
+    --output '$output_percentiles'
+    ]]></command>
+    <inputs>
+        <param name="prs_scores" type="data" format="tabular,tsv" label="PRS scores file"
+               help="Tab-separated file with sample IDs and PRS scores from PRSice-2."/>
+        
+        <param name="population" type="select" label="Reference population">
+            <option value="EAS" selected="true">East Asian (EAS)</option>
+            <option value="EUR">European (EUR)</option>
+            <option value="AFR">African (AFR)</option>
+            <option value="SAS">South Asian (SAS)</option>
+            <option value="AMR">Admixed American (AMR)</option>
+        </param>
+        
+        <param name="reference_size" type="integer" min="1000" max="1000000" value="10000"
+               label="Reference population size"
+               help="Size of reference population for percentile calculation."/>
+    </inputs>
+    <outputs>
+        <data name="output_percentiles" format="json" label="${tool.name} on ${on_string}: Percentiles"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="prs_scores" value="test_prs.tsv"/>
+            <param name="population" value="EAS"/>
+            <output name="output_percentiles" file="expected_percentiles.json" compare="sim_size" delta="100"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**PRS Percentile Calculator**
+
+Calculates population percentiles for polygenic risk scores based on a normal distribution model.
+
+**Method**
+
+1. Calculate mean and standard deviation of PRS scores
+2. Convert scores to Z-scores
+3. Map Z-scores to percentiles using cumulative normal distribution
+
+**Input**
+
+Tab-separated file with sample IDs and PRS scores (output from PRSice-2).
+
+**Output**
+
+JSON file containing:
+- Per-sample percentile rankings
+- Population metadata
+- Distribution statistics
+
+**Interpretation**
+
+| Percentile | Risk Category |
+|------------|---------------|
+| ≥95% | Very High Risk |
+| ≥90% | High Risk |
+| ≥75% | Elevated Risk |
+| 25-75% | Average Risk |
+| <25% | Low Risk |
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1038/s41596-022-00686-2</citation>
+        <citation type="doi">10.1093/gigascience/giz082</citation>
+    </citations>
+</tool>

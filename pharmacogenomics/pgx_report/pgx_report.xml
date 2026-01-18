@@ -1,0 +1,341 @@
+<tool id="pgx_report" name="PGx Report Generator" version="1.0.0+galaxy0" profile="21.05">
+    <description>Comprehensive pharmacogenomics clinical report generator</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.0.0</token>
+        <token name="@GALAXY_VERSION@">galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">pgx-report</requirement>
+        <container type="docker">omniverse/pgx-report:1.0.0</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        ## 创建输入文件符号链接
+        #if $cpic_report
+            ln -s '$cpic_report' cpic.json &&
+        #end if
+        #if $dpwg_report
+            ln -s '$dpwg_report' dpwg.json &&
+        #end if
+        #if $pharmcat_report
+            ln -s '$pharmcat_report' pharmcat.json &&
+        #end if
+        #if $diplotype_data
+            ln -s '$diplotype_data' diplotypes.tsv &&
+        #end if
+        
+        mkdir -p output &&
+        
+        pgx-report-generate
+            #if $cpic_report
+                --cpic-report cpic.json
+            #end if
+            #if $dpwg_report
+                --dpwg-report dpwg.json
+            #end if
+            #if $pharmcat_report
+                --pharmcat-report pharmcat.json
+            #end if
+            #if $diplotype_data
+                --diplotypes diplotypes.tsv
+            #end if
+            --output-dir output
+            --output-prefix result
+            --report-format '$report_format'
+            --language '$language'
+            #if str($patient_id) != ""
+                --patient-id '$patient_id'
+            #end if
+            #if str($ordering_physician) != ""
+                --ordering-physician '$ordering_physician'
+            #end if
+            #if str($institution) != ""
+                --institution '$institution'
+            #end if
+            #if $include_disclaimers
+                --include-disclaimers
+            #end if
+            #if $include_methodology
+                --include-methodology
+            #end if
+            #if $include_references
+                --include-references
+            #end if
+            #if $include_appendix
+                --include-appendix
+            #end if
+            --template '$report_template'
+            #if $high_priority_highlight
+                --highlight-high-priority
+            #end if
+        
+        && mv output/result.report.html '$final_report'
+        && mv output/result.summary.json '$summary_json'
+        #if $output_pdf
+            && mv output/result.report.pdf '$pdf_report'
+        #end if
+    ]]></command>
+    <inputs>
+        <section name="input_data" title="Input Data Sources" expanded="true">
+            <param name="cpic_report" type="data" format="json,tabular" optional="true" label="CPIC Interpreter output" help="JSON output from CPIC Interpreter tool"/>
+            
+            <param name="dpwg_report" type="data" format="json,tabular" optional="true" label="DPWG Interpreter output" help="JSON output from DPWG Interpreter tool"/>
+            
+            <param name="pharmcat_report" type="data" format="json,tabular" optional="true" label="PharmCAT report" help="JSON output from PharmCAT analysis"/>
+            
+            <param name="diplotype_data" type="data" format="json,tabular,tsv" optional="true" label="Diplotype calls" help="Raw diplotype data for inclusion in report"/>
+        </section>
+        
+        <section name="patient_info" title="Patient Information" expanded="false">
+            <param name="patient_id" type="text" optional="true" label="Patient ID" help="Patient identifier for report header"/>
+            
+            <param name="ordering_physician" type="text" optional="true" label="Ordering physician" help="Name of ordering physician"/>
+            
+            <param name="institution" type="text" optional="true" label="Institution" help="Healthcare institution name"/>
+        </section>
+        
+        <param name="report_format" type="select" label="Primary report format">
+            <option value="html" selected="true">HTML (Interactive web report)</option>
+            <option value="pdf">PDF (Printable clinical report)</option>
+        </param>
+        
+        <param name="output_pdf" type="boolean" truevalue="true" falsevalue="false" checked="true" label="Also generate PDF version" help="Generate PDF in addition to HTML"/>
+        
+        <param name="language" type="select" label="Report language">
+            <option value="en" selected="true">English</option>
+            <option value="zh">Chinese (简体中文)</option>
+        </param>
+        
+        <param name="report_template" type="select" label="Report template">
+            <option value="clinical" selected="true">Clinical (Standard clinical report)</option>
+            <option value="research">Research (Detailed technical report)</option>
+            <option value="summary">Summary (Executive summary only)</option>
+            <option value="patient">Patient-Friendly (Simplified language)</option>
+        </param>
+        
+        <section name="report_sections" title="Report Sections" expanded="true">
+            <param name="include_disclaimers" type="boolean" truevalue="true" falsevalue="false" checked="true" label="Include clinical disclaimers" help="Add standard PGx testing disclaimers"/>
+            
+            <param name="include_methodology" type="boolean" truevalue="true" falsevalue="false" checked="true" label="Include methodology section" help="Describe analysis methods and tools used"/>
+            
+            <param name="include_references" type="boolean" truevalue="true" falsevalue="false" checked="true" label="Include literature references" help="Add PMID citations for recommendations"/>
+            
+            <param name="include_appendix" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Include technical appendix" help="Add detailed technical information"/>
+            
+            <param name="high_priority_highlight" type="boolean" truevalue="true" falsevalue="false" checked="true" label="Highlight high-priority findings" help="Emphasize actionable recommendations for CYP2D6, CYP2C19, DPYD, TPMT, NUDT15, SLCO1B1"/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="final_report" format="html" label="${tool.name} on ${on_string}: Clinical Report">
+            <change_format>
+                <when input="report_format" value="pdf" format="pdf"/>
+            </change_format>
+        </data>
+        
+        <data name="summary_json" format="json" label="${tool.name} on ${on_string}: Summary JSON"/>
+        
+        <data name="pdf_report" format="pdf" label="${tool.name} on ${on_string}: PDF Report">
+            <filter>output_pdf and report_format != 'pdf'</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="cpic_report" value="test_cpic.json"/>
+            <param name="dpwg_report" value="test_dpwg.json"/>
+            <param name="report_format" value="html"/>
+            <param name="output_pdf" value="false"/>
+            <output name="final_report" file="expected_report.html" compare="sim_size"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**PGx Report Generator - Comprehensive Pharmacogenomics Reporting**
+====================================================================
+
+This tool generates comprehensive, clinical-grade pharmacogenomics reports 
+by integrating results from multiple PGx analysis tools and guideline 
+interpreters into a unified, actionable clinical document.
+
+**Overview**
+------------
+
+The PGx Report Generator:
+
+- Merges CPIC and DPWG recommendations
+- Integrates PharmCAT diplotype calls
+- Generates publication-quality clinical reports
+- Supports multiple output formats (HTML, PDF)
+- Provides bilingual support (English, Chinese)
+
+**Report Structure**
+--------------------
+
+The generated report includes:
+
+1. **Executive Summary**
+   - Patient identification
+   - Testing date and methodology
+   - Key actionable findings
+
+2. **Phenotype Summary Table**
+   - All tested genes with diplotypes
+   - Metabolizer phenotypes
+   - Activity scores (where applicable)
+
+3. **Drug Recommendations**
+   - Organized by therapeutic area
+   - CPIC and DPWG guidance merged
+   - Evidence levels indicated
+   - Alternative medications suggested
+
+4. **High-Priority Alerts**
+   - Highlighted findings requiring immediate attention
+   - DPYD poor metabolizer (fluoropyrimidine toxicity risk)
+   - TPMT/NUDT15 deficiency (thiopurine toxicity)
+   - CYP2C19 with clopidogrel
+   - HLA-B alleles (hypersensitivity risk)
+
+5. **Methodology Section**
+   - Tools and versions used
+   - Reference genome
+   - Quality metrics
+
+6. **References**
+   - PMID citations for all recommendations
+   - Links to CPIC and DPWG guidelines
+
+**Template Options**
+--------------------
+
+| Template | Audience | Content |
+|----------|----------|---------|
+| Clinical | Physicians | Standard clinical format |
+| Research | Scientists | Technical details, QC metrics |
+| Summary | Quick review | One-page executive summary |
+| Patient | Patients | Simplified, educational |
+
+**Input Data Sources**
+----------------------
+
+The tool accepts multiple input types:
+
+- **CPIC Interpreter output**: JSON with drug recommendations
+- **DPWG Interpreter output**: JSON with DPWG recommendations
+- **PharmCAT report**: Direct PharmCAT JSON output
+- **Diplotype data**: Raw star allele calls
+
+When multiple sources provide recommendations for the same drug-gene pair,
+the report displays both and notes any discrepancies.
+
+**High-Priority Genes**
+-----------------------
+
+The following genes are flagged as high-priority when actionable:
+
+| Gene | Clinical Significance |
+|------|----------------------|
+| CYP2D6 | ~25% of Rx drugs metabolized |
+| CYP2C19 | Clopidogrel efficacy |
+| DPYD | Fluoropyrimidine toxicity (5-FU) |
+| TPMT | Thiopurine toxicity |
+| NUDT15 | Thiopurine toxicity (especially Asian) |
+| SLCO1B1 | Statin myopathy risk |
+
+**Output Formats**
+------------------
+
+**HTML Report Features:**
+- Interactive navigation
+- Collapsible sections
+- Print-optimized CSS
+- Embedded styling (no external dependencies)
+
+**PDF Report Features:**
+- Professional clinical layout
+- Consistent pagination
+- Institution logo support
+- Digital signature ready
+
+**Summary JSON Structure:**
+
+.. code-block:: json
+
+    {
+        "report_metadata": {
+            "generated_date": "2024-01-15T10:30:00Z",
+            "patient_id": "PGX-2024-001",
+            "tools_used": ["PharmCAT 2.13.0", "CPIC 2024.01"]
+        },
+        "phenotype_summary": {
+            "CYP2D6": {"diplotype": "*1/*4", "phenotype": "IM", "score": 1.0},
+            "CYP2C19": {"diplotype": "*1/*1", "phenotype": "NM", "score": 2.0}
+        },
+        "high_priority_findings": [
+            {
+                "gene": "CYP2D6",
+                "finding": "Intermediate Metabolizer",
+                "affected_drugs": ["codeine", "tramadol", "tamoxifen"]
+            }
+        ],
+        "recommendation_count": {
+            "total": 24,
+            "actionable": 8,
+            "monitoring": 5,
+            "no_action": 11
+        }
+    }
+
+**Workflow Integration**
+------------------------
+
+Complete PGx pipeline::
+
+    VCF Input
+        │
+        ├── PharmCAT ─────────────────┐
+        │                              │
+        ├── Stargazer → CYP2D6 ──┬────┤
+        │                        │    │
+        ├── Cyrius → CYP2D6 CNV ─┘    │
+        │                              ↓
+        ├── CPIC Interpreter ────→ Recommendations
+        │                              │
+        └── DPWG Interpreter ────→ Recommendations
+                                       │
+                                       ↓
+                              PGx Report Generator
+                                       │
+                                       ↓
+                              Clinical Report (HTML/PDF)
+
+**Clinical Disclaimers**
+------------------------
+
+Standard disclaimers included in reports:
+
+- Results should be interpreted by qualified healthcare professionals
+- PGx is one factor in drug selection; clinical judgment essential
+- Novel variants may not be detected
+- Results valid at time of testing; guidelines may update
+
+**Citation**
+------------
+
+When using this tool for clinical reporting, cite:
+
+1. The individual analysis tools (PharmCAT, Stargazer, Cyrius)
+2. CPIC guidelines (https://cpicpgx.org/)
+3. DPWG guidelines (PharmGKB)
+
+**Links**
+---------
+
+- CPIC: https://cpicpgx.org/
+- DPWG: https://www.pharmgkb.org/page/dpwg
+- PharmVar: https://www.pharmvar.org/
+- PharmGKB: https://www.pharmgkb.org/
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1038/clpt.2010.279</citation>
+        <citation type="doi">10.1002/cpt.1058</citation>
+        <citation type="doi">10.1002/cpt.2311</citation>
+    </citations>
+</tool>

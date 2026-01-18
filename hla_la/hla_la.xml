@@ -1,0 +1,123 @@
+<tool id="hla_la" name="HLA-LA" version="1.0.3+galaxy0" profile="21.05">
+    <description>Graph-based HLA typing from whole genome data</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.0.3</token>
+        <token name="@VERSION_SUFFIX@">+galaxy0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">hla-la</requirement>
+        <container type="docker">hla-la:1.0.3</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+#if $input_data.is_of_type('bam')
+    ln -s '$input_data' input.bam &&
+    ln -s '$input_data.metadata.bam_index' input.bam.bai &&
+    #set $input_file = 'input.bam'
+#else
+    ln -s '$input_data' input.cram &&
+    ln -s '$input_data.metadata.cram_index' input.cram.crai &&
+    #set $input_file = 'input.cram'
+#end if
+
+mkdir -p output &&
+
+HLA-LA.pl
+    --BAM $input_file
+    --graph PRG_MHC_GRCh38_withIMGT
+    --sampleID sample
+    --maxThreads \${GALAXY_SLOTS:-4}
+    --workingDir output
+    
+#if str($additional_loci) != ""
+    --additionalLoci '$additional_loci'
+#end if
+
+&&
+
+mv output/sample/hla/R1_bestguess_G.txt '$hla_result' &&
+
+python3 << 'EOF'
+import json
+
+results = {}
+with open('$hla_result', 'r') as f:
+    next(f)
+    for line in f:
+        parts = line.strip().split('\t')
+        if len(parts) >= 4:
+            locus = parts[0]
+            allele1 = parts[2]
+            allele2 = parts[3]
+            results[locus] = {
+                'allele1': allele1,
+                'allele2': allele2,
+                'tool': 'HLA-LA',
+                'version': '@TOOL_VERSION@'
+            }
+
+output = {
+    'sample': 'sample',
+    'tool': 'HLA-LA',
+    'version': '@TOOL_VERSION@',
+    'typing_results': results
+}
+
+with open('$json_output', 'w') as f:
+    json.dump(output, f, indent=2)
+EOF
+    ]]></command>
+    <inputs>
+        <param name="input_data" type="data" format="bam,cram" 
+               label="Aligned reads (BAM/CRAM)" 
+               help="Whole genome or exome aligned reads. Must be sorted and indexed."/>
+        
+        <param name="additional_loci" type="text" value="" optional="true"
+               label="Additional loci"
+               help="Comma-separated list of additional loci to type (e.g., DQA1,DPA1)"/>
+    </inputs>
+    <outputs>
+        <data name="hla_result" format="tabular" label="${tool.name} on ${on_string}: HLA Types"/>
+        <data name="json_output" format="json" label="${tool.name} on ${on_string}: JSON Result"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="input_data" value="test.bam"/>
+            <output name="hla_result" file="expected_hlala.txt" compare="sim_size" delta="100"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**HLA-LA: Graph-based HLA Typing**
+
+HLA-LA 使用基于图的方法从全基因组测序数据中进行 HLA 分型。它特别适合处理 HLA 区域的高度多态性。
+
+**主要特点**
+
+- 使用 Population Reference Graph (PRG) 表示 HLA 多态性
+- 支持 WGS 和 WES 数据
+- 能够处理复杂的多态性区域
+- 高分辨率分型 (4-field)
+
+**支持的 HLA 基因**
+
+- **Class I**: HLA-A, HLA-B, HLA-C
+- **Class II**: HLA-DRB1, HLA-DQB1, HLA-DPB1, HLA-DRB3/4/5
+
+**输入要求**
+
+- BAM 或 CRAM 格式的比对文件
+- 必须已排序并建立索引
+- 推荐使用 GRCh38 参考基因组比对
+
+**参考文献**
+
+Dilthey AT, et al. HLA*LA—HLA typing from linearly projected graph alignments.
+Bioinformatics. 2019;35(21):4394-4396. doi:10.1093/bioinformatics/btz235 (PMID: 28295927)
+
+**更多信息**
+
+- GitHub: https://github.com/DiltheyLab/HLA-LA
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1093/bioinformatics/btz235</citation>
+    </citations>
+</tool>
